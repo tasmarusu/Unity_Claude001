@@ -38,8 +38,6 @@ namespace OneTapDemolition
             isDemolished = false;
 
             rb.isKinematic = true;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
         }
 
         /// <summary>
