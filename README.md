@@ -22,52 +22,51 @@ Unity_Claude001/
 │   │   ├── ScoreManager.cs           # スコア加算・ベストスコアのPlayerPrefs保存
 │   │   ├── GameManager.cs            # タワー生成・クリア後の次タワー生成ループ制御
 │   │   └── JuiceManager.cs           # 破壊時の演出(カメラシェイク/パーティクル/ヒットストップ/SE/スコアポップ)を統括
-│   ├── Prefabs/                      # Floor.prefab, BuildingTower.prefab などを配置(要作成)
-│   └── Scenes/                       # メインシーンを配置(要作成)
+│   ├── Prefabs/
+│   │   ├── Floor.prefab              # Cube + Rigidbody(Kinematic) + BoxCollider + Floor.cs
+│   │   └── BuildingTower.prefab      # BuildingTower.cs(Floor Prefab / Floor Count 等を設定済み)
+│   └── Scenes/
+│       └── Main.unity                # Main Camera / GameManager / ScoreManager / JuiceManager 配線済み
 ├── ProjectSettings/
-│   └── ProjectVersion.txt            # Unity Hubがプロジェクトとして認識するための最小限のバージョン情報
+│   ├── ProjectVersion.txt            # Unity Hubがプロジェクトとして認識するための最小限のバージョン情報
+│   └── EditorBuildSettings.asset     # ビルド設定にMain.unityを登録済み
 ├── .gitignore
 └── README.md
 ```
 
-このリポジトリには Unity Editor が自動生成する `Library/` `Temp/` 等のフォルダやプレハブ・シーンの実体は含まれていません(`.gitignore` で除外、また未作成のため)。**Unity Editorで開いて以下のセットアップを行ってください。**
+このリポジトリには Unity Editor が自動生成する `Library/` `Temp/` 等のフォルダは含まれません(`.gitignore` で除外)。プレハブ・シーンの実体はテキスト形式のアセットとしてコミット済みで、**Unity Editorで開けばすぐPlayできる状態**になっています。
 
 ## セットアップ手順(Unity Editor上)
 
 ### 1. プロジェクトを開く
 
-Unity Hub で「プロジェクトを追加」からこのフォルダ(`Unity_Claude001`)を選択して開きます。`ProjectSettings/ProjectVersion.txt` に記載のバージョン(または近いLTSバージョン)のEditorがインストールされている必要があります。異なるバージョンで開く場合はUnity Hub側でバージョン変更を許可してください。
+Unity Hub で「プロジェクトを追加」からこのフォルダ(`Unity_Claude001`)を選択して開きます。`ProjectSettings/ProjectVersion.txt` に記載のバージョン(2022.3.50f1、または近いLTSバージョン)のEditorがインストールされている必要があります。異なるバージョンで開く場合はUnity Hub側でバージョン変更を許可してください。
 
-### 2. Floorプレハブを作成する
+初回オープン時、Unityがこのリポジトリのアセットを再インポートします。数分かかることがあります。
 
-1. Hierarchy上に立方体(Cube)などのGameObjectを作成する。
-2. `Rigidbody` コンポーネントを追加し、`Is Kinematic` にチェックを入れる。
-3. `Box Collider`(または任意のCollider)が付いていることを確認する。
-4. `Floor.cs` をアタッチする。
-5. `Assets/Prefabs/` にドラッグ&ドロップしてプレハブ化し、`Floor.prefab` として保存する。
+### 2. 内容を確認する(すでに配線済み)
 
-### 3. BuildingTowerを作成する
+`Assets/Scenes/Main.unity` を開くと以下が既に配置されています。
 
-1. 空のGameObjectを作成し、`BuildingTower.cs` をアタッチする。
-2. Inspectorで `Floor Prefab` に手順2で作成した `Floor.prefab` を設定する。
-3. `Floor Count`(積み上げ階数)、`Floor Height`(1階の高さ)を必要に応じて調整する。
-4. これも `Assets/Prefabs/` に `BuildingTower.prefab` として保存する。
+- **Directional Light**
+- **Main Camera** — `TapDemolishController.cs` アタッチ済み(`Target Camera` = 自身)
+- **GameManager** — `GameManager.cs` アタッチ済み(`Tower Prefab` = `BuildingTower.prefab`、`Next Tower Delay` = 1.5)
+- **ScoreManager** — `ScoreManager.cs` アタッチ済み
+- **JuiceManager** — `JuiceManager.cs` + `AudioSource` アタッチ済み(`Camera Transform` = Main Camera)
 
-### 4. シーンをセットアップする
+`Assets/Prefabs/Floor.prefab` は Cube(MeshFilter/MeshRenderer) + `BoxCollider` + `Rigidbody`(`Is Kinematic` = ON) + `Floor.cs` の構成、`Assets/Prefabs/BuildingTower.prefab` は `BuildingTower.cs` の `Floor Prefab` に `Floor.prefab` を設定済みです(`Floor Count` = 10、`Floor Height` = 1)。
 
-1. `Assets/Scenes/` に新規シーンを作成し保存する(例: `Main.unity`)。
-2. Main Camera を配置し、`TapDemolishController.cs` をアタッチする。
-3. 空のGameObjectに `GameManager.cs` をアタッチし、Inspectorで `Tower Prefab` に `BuildingTower.prefab` を設定する。任意で `Tower Spawn Point` を設定する。
-4. 空のGameObjectに `ScoreManager.cs` をアタッチする。
-5. 空のGameObjectに `JuiceManager.cs` をアタッチする。
-   - `Camera Transform` にMain Cameraを設定する(未設定時は `Camera.main` を自動取得)。
-   - `Audio Source` コンポーネントを同じGameObjectに追加し、`Destroy Clip` / `Impact Clip` に仮のSEを設定する(任意)。
-   - `Debris Particle Prefab` に破壊時のパーティクル(コンクリート片やホコリのプレースホルダー)を設定する(任意)。
-6. Floorが乗るレイヤーを作成し(例: `Floor`)、`TapDemolishController` の `Floor Layer Mask` をそのレイヤーに絞ると誤判定を防げる。
+### 3. 任意で差し替える(プレースホルダー)
 
-### 5. 実行して確認する
+- `JuiceManager` の `Debris Particle Prefab` に破壊時のパーティクル(コンクリート片・ホコリ)を設定する。
+- `JuiceManager` の `Destroy Clip` / `Impact Clip` に仮のSEを割り当てる。
+- 未設定でも例外は発生しません(nullチェック済み)。見た目・音を強化したい場合のみ差し替えてください。
 
-Playモードに入り、積み上がったビルの任意の階をクリック(エディタ)/タップ(実機)すると、その階と上階が連鎖的に崩落し、スコアが加算されることを確認する。
+### 4. 実行して確認する
+
+Playモードに入り、積み上がったビルの任意の階をクリック(エディタ)/タップ(実機)すると、その階と上階が連鎖的に崩落し、スコアが加算されることを確認します。
+
+> **Note:** プレハブ・シーンはUnity Editorを介さずテキストアセットとして直接作成しています。開いて何かエラー・警告が出た場合は、該当コンポーネントを一度削除して手動で付け直してください(スクリプト自体には影響ありません)。
 
 ## 破壊時のゲームフィール(JuiceManager)
 
