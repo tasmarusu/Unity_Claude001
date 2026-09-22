@@ -56,6 +56,7 @@ namespace OneTapDemolition
         public void ResetScore()
         {
             CurrentScore = 0;
+            ScoreChanged?.Invoke(0, CurrentScore);
         }
     }
 }
