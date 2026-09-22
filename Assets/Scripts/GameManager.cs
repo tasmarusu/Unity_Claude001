@@ -10,7 +10,7 @@ namespace OneTapDemolition
         public static GameManager Instance { get; private set; }
 
         [Header("Tower Spawning")]
-        [SerializeField] private BuildingTower towerPrefab;
+        [SerializeField] private BuildingTower[] towerPrefabs;
         [SerializeField] private Transform towerSpawnPoint;
         [SerializeField] private float nextTowerDelay = 1.5f;
 
@@ -39,7 +39,8 @@ namespace OneTapDemolition
             }
 
             Vector3 spawnPosition = towerSpawnPoint != null ? towerSpawnPoint.position : Vector3.zero;
-            currentTower = Instantiate(towerPrefab, spawnPosition, Quaternion.identity);
+            BuildingTower prefab = towerPrefabs[Random.Range(0, towerPrefabs.Length)];
+            currentTower = Instantiate(prefab, spawnPosition, Quaternion.identity);
             currentTower.BuildTower();
         }
 
