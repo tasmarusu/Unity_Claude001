@@ -15,6 +15,7 @@ namespace OneTapDemolition
         [SerializeField] private float nextTowerDelay = 1.5f;
 
         private BuildingTower currentTower;
+        private int lastClearedScore;
 
         private void Awake()
         {
@@ -49,8 +50,21 @@ namespace OneTapDemolition
         /// </summary>
         public void OnTowerCleared()
         {
+            lastClearedScore = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
             ScoreManager.Instance?.ResetScore();
+
+            AdsManager.Instance?.NotifyTowerCleared();
+            RewardBonusUI.Instance?.ShowIfAvailable();
+
             Invoke(nameof(SpawnNewTower), nextTowerDelay);
+        }
+
+        /// <summary>
+        /// リワード広告を最後まで見た後に呼ばれる。直前にクリアしたスコアを2倍にしてベストスコア判定にかける。
+        /// </summary>
+        public void ApplyDoubleClearBonus()
+        {
+            ScoreManager.Instance?.TryUpdateBestScore(lastClearedScore * 2);
         }
     }
 }

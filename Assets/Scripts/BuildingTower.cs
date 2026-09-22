@@ -97,6 +97,7 @@ namespace OneTapDemolition
                 }
 
                 chainStep++;
+                FreeFromNeighborCollisions(floor);
                 floor.Demolish(hitPoint, chainStep);
                 aliveFloorCount--;
 
@@ -115,6 +116,32 @@ namespace OneTapDemolition
             if (IsCleared)
             {
                 GameManager.Instance?.OnTowerCleared();
+            }
+        }
+
+        /// <summary>
+        /// 崩落した階が他の階(残存階・既に崩落した階)と衝突して突っかからないよう、衝突判定を無効化する。
+        /// </summary>
+        private void FreeFromNeighborCollisions(Floor floor)
+        {
+            Collider floorCollider = floor.GetComponent<Collider>();
+            if (floorCollider == null)
+            {
+                return;
+            }
+
+            foreach (Floor other in floors)
+            {
+                if (other == null || other == floor)
+                {
+                    continue;
+                }
+
+                Collider otherCollider = other.GetComponent<Collider>();
+                if (otherCollider != null)
+                {
+                    Physics.IgnoreCollision(floorCollider, otherCollider, true);
+                }
             }
         }
     }

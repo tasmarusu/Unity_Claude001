@@ -1,0 +1,23 @@
+name: Unity Request Activation File
+
+# One-time manual step to obtain a Unity Personal license activation file (.alf).
+# Run this workflow once from the Actions tab, download the resulting artifact,
+# then follow the steps in the README to convert it into the UNITY_LICENSE secret.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  request-activation-file:
+    name: Request activation file
+    runs-on: ubuntu-latest
+    steps:
+      - name: Request manual activation file
+        uses: game-ci/unity-request-activation-file@v2
+        id: getManualLicenseFile
+
+      - name: Upload activation file
+        uses: actions/upload-artifact@v4
+        with:
+          name: Unity_v6000.3.10f1.alf
+          path: ${{ steps.getManualLicenseFile.outputs.filePath }}
+          retention-days: 3

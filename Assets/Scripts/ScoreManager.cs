@@ -43,12 +43,7 @@ namespace OneTapDemolition
             CurrentScore += amount;
             ScoreChanged?.Invoke(amount, CurrentScore);
 
-            if (CurrentScore > BestScore)
-            {
-                BestScore = CurrentScore;
-                PlayerPrefs.SetInt(BestScoreKey, BestScore);
-                BestScoreUpdated?.Invoke(BestScore);
-            }
+            TryUpdateBestScore(CurrentScore);
 
             return amount;
         }
@@ -56,6 +51,23 @@ namespace OneTapDemolition
         public void ResetScore()
         {
             CurrentScore = 0;
+            ScoreChanged?.Invoke(0, CurrentScore);
+        }
+
+        /// <summary>
+        /// リワード広告視聴のボーナスなど、任意の値を「今回の記録」としてベストスコア判定にかける。
+        /// candidateがベストスコアを上回った場合のみ更新される。
+        /// </summary>
+        public void TryUpdateBestScore(int candidate)
+        {
+            if (candidate <= BestScore)
+            {
+                return;
+            }
+
+            BestScore = candidate;
+            PlayerPrefs.SetInt(BestScoreKey, BestScore);
+            BestScoreUpdated?.Invoke(BestScore);
         }
     }
 }
