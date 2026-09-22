@@ -13,6 +13,10 @@ namespace OneTapDemolition
         [SerializeField] private float launchForce = 3.5f;
         [SerializeField] private float launchTorque = 2.5f;
 
+        [Header("Visuals")]
+        [SerializeField] private GameObject accentBand;
+        [SerializeField] private int accentInterval = 4;
+
         private Rigidbody rb;
         private BuildingTower ownerTower;
         private int floorIndex;
@@ -38,8 +42,11 @@ namespace OneTapDemolition
             isDemolished = false;
 
             rb.isKinematic = true;
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
+
+            if (accentBand != null)
+            {
+                accentBand.SetActive(accentInterval > 0 && index % accentInterval == 0);
+            }
         }
 
         /// <summary>
