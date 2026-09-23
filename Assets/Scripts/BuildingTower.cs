@@ -25,6 +25,11 @@ namespace OneTapDemolition
         public int FloorCount => floors.Count;
 
         /// <summary>
+        /// このタワーの積み上げ高さ(階数×階高)。カメラの自動フレーミングに使う。
+        /// </summary>
+        public float TotalHeight => floorCount * floorHeight;
+
+        /// <summary>
         /// このタワーがデモリションブースト(強化)状態で生成されたかどうか。
         /// </summary>
         public bool IsBoosted => activeForceMultiplier > 1f;
