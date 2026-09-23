@@ -4,7 +4,7 @@ using UnityEngine.UI;
 namespace OneTapDemolition
 {
     /// <summary>
-    /// タワークリア直後に、リワード広告視聴で「クリアスコア2倍」を狙えるボタンを一瞬表示する。
+    /// タワークリア直後に、リワード広告視聴で次のタワーの崩落を強化(デモリションブースト)できるボタンを一瞬表示する。
     /// </summary>
     public class RewardBonusUI : MonoBehaviour
     {
@@ -63,7 +63,7 @@ namespace OneTapDemolition
         private void OnWatchAdClicked()
         {
             Hide();
-            AdsManager.Instance?.ShowRewarded(() => GameManager.Instance?.ApplyDoubleClearBonus());
+            AdsManager.Instance?.ShowRewarded(() => GameManager.Instance?.ApplyNextTowerBoost());
         }
     }
 }

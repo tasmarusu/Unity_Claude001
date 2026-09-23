@@ -19,15 +19,23 @@ namespace OneTapDemolition
 
         private readonly List<Floor> floors = new List<Floor>();
         private int aliveFloorCount;
+        private float activeForceMultiplier = 1f;
 
         public bool IsCleared => aliveFloorCount <= 0;
         public int FloorCount => floors.Count;
 
         /// <summary>
-        /// 指定階数分のFloorを下から積み上げて生成する。
+        /// このタワーがデモリションブースト(強化)状態で生成されたかどうか。
         /// </summary>
-        public void BuildTower()
+        public bool IsBoosted => activeForceMultiplier > 1f;
+
+        /// <summary>
+        /// 指定階数分のFloorを下から積み上げて生成する。
+        /// forceMultiplierが1より大きい場合、崩落時の吹っ飛びが強化される(リワード広告のブースト用)。
+        /// </summary>
+        public void BuildTower(float forceMultiplier = 1f)
         {
+            activeForceMultiplier = Mathf.Max(1f, forceMultiplier);
             ClearExisting();
 
             for (int i = 0; i < floorCount; i++)
@@ -35,6 +43,7 @@ namespace OneTapDemolition
                 Floor floor = Instantiate(floorPrefab, transform);
                 floor.transform.localPosition = new Vector3(0f, i * floorHeight, 0f);
                 floor.Setup(i, this);
+                floor.SetForceMultiplier(activeForceMultiplier);
                 floors.Add(floor);
             }
 

@@ -6,20 +6,26 @@ namespace OneTapDemolition
 {
     /// <summary>
     /// JuiceManagerの演出フックを受けて、崩落した階から「+N」を浮かせるポップアップと、
-    /// 連鎖数が2以上のときに「N CHAIN!」を中央に出すコンボ表示を行う。
+    /// 連鎖数が2以上のときに「N CHAIN!」を中央に出すコンボ表示、
+    /// リワード広告視聴時の「POWER UP!」バナーを行う。
     /// シーンに手動配置せず、実行時に自分でCanvas/Text等を生成する
     /// (他セッションによるシーン上書きでUIごと消えるのを避けるため)。
     /// </summary>
     public class ScoreFeedbackUI : MonoBehaviour
     {
+        public static ScoreFeedbackUI Instance { get; private set; }
+
         [SerializeField] private float popupDuration = 0.7f;
         [SerializeField] private float popupRiseDistance = 80f;
-        [SerializeField] private float comboHoldDuration = 0.6f;
+        [SerializeField] private float bannerHoldDuration = 0.6f;
 
         private Canvas targetCanvas;
         private Camera mainCamera;
-        private Text comboText;
-        private Coroutine comboRoutine;
+        private Text bannerText;
+        private Coroutine bannerRoutine;
+
+        private static readonly Color ComboColor = new Color(1f, 0.85f, 0.2f, 1f);
+        private static readonly Color PowerUpColor = new Color(0.45f, 0.85f, 1f, 1f);
 
         /// <summary>
         /// シーンへの手動配置不要で自動的に生き始める。他セッションによるシーン上書きの影響を受けない。
@@ -36,11 +42,16 @@ namespace OneTapDemolition
             go.AddComponent<ScoreFeedbackUI>();
         }
 
+        private void Awake()
+        {
+            Instance = this;
+        }
+
         private void Start()
         {
             mainCamera = Camera.main;
             targetCanvas = FindOrCreateCanvas();
-            CreateComboText();
+            CreateBannerText();
 
             if (JuiceManager.Instance != null)
             {
@@ -51,6 +62,11 @@ namespace OneTapDemolition
 
         private void OnDestroy()
         {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+
             if (JuiceManager.Instance != null)
             {
                 JuiceManager.Instance.OnScorePopupRequested.RemoveListener(OnScorePopup);
@@ -84,9 +100,9 @@ namespace OneTapDemolition
             return canvas;
         }
 
-        private void CreateComboText()
+        private void CreateBannerText()
         {
-            GameObject go = new GameObject("ChainComboText", typeof(RectTransform), typeof(Text), typeof(Outline));
+            GameObject go = new GameObject("FeedbackBannerText", typeof(RectTransform), typeof(Text), typeof(Outline));
             go.transform.SetParent(targetCanvas.transform, false);
 
             RectTransform rect = go.GetComponent<RectTransform>();
@@ -95,12 +111,12 @@ namespace OneTapDemolition
             rect.sizeDelta = new Vector2(700, 140);
             rect.anchoredPosition = Vector2.zero;
 
-            comboText = go.GetComponent<Text>();
-            comboText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            comboText.alignment = TextAnchor.MiddleCenter;
-            comboText.fontSize = 64;
-            comboText.fontStyle = FontStyle.Bold;
-            comboText.color = new Color(1f, 0.85f, 0.2f, 1f);
+            bannerText = go.GetComponent<Text>();
+            bannerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            bannerText.alignment = TextAnchor.MiddleCenter;
+            bannerText.fontSize = 64;
+            bannerText.fontStyle = FontStyle.Bold;
+            bannerText.color = ComboColor;
 
             Outline outline = go.GetComponent<Outline>();
             outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
@@ -176,29 +192,47 @@ namespace OneTapDemolition
 
         private void OnChainImpact(int totalChainCount)
         {
-            if (totalChainCount < 2 || comboText == null)
+            if (totalChainCount < 2 || bannerText == null)
             {
                 return;
             }
 
-            if (comboRoutine != null)
-            {
-                StopCoroutine(comboRoutine);
-            }
-            comboRoutine = StartCoroutine(ComboRoutine(totalChainCount));
+            PlayBanner(totalChainCount + " CHAIN!", ComboColor);
         }
 
-        private IEnumerator ComboRoutine(int totalChainCount)
+        /// <summary>
+        /// リワード広告視聴後、次のタワーが強化されたことを知らせるバナー。
+        /// GameManager.SpawnNewTowerから、ブースト適用時に呼ばれる。
+        /// </summary>
+        public void ShowPowerUpBanner()
         {
-            comboText.text = totalChainCount + " CHAIN!";
-            comboText.gameObject.SetActive(true);
-            Color baseColor = comboText.color;
-            comboText.color = new Color(baseColor.r, baseColor.g, baseColor.b, 1f);
+            if (bannerText == null)
+            {
+                return;
+            }
 
-            yield return PunchScale(comboText.transform, 0.6f, 1.15f, 0.15f);
-            yield return PunchScale(comboText.transform, 1.15f, 1f, 0.1f);
+            PlayBanner("POWER UP!", PowerUpColor);
+        }
 
-            yield return new WaitForSecondsRealtime(comboHoldDuration);
+        private void PlayBanner(string text, Color color)
+        {
+            if (bannerRoutine != null)
+            {
+                StopCoroutine(bannerRoutine);
+            }
+            bannerRoutine = StartCoroutine(BannerRoutine(text, color));
+        }
+
+        private IEnumerator BannerRoutine(string text, Color color)
+        {
+            bannerText.text = text;
+            bannerText.color = new Color(color.r, color.g, color.b, 1f);
+            bannerText.gameObject.SetActive(true);
+
+            yield return PunchScale(bannerText.transform, 0.6f, 1.15f, 0.15f);
+            yield return PunchScale(bannerText.transform, 1.15f, 1f, 0.1f);
+
+            yield return new WaitForSecondsRealtime(bannerHoldDuration);
 
             float elapsed = 0f;
             const float fadeDuration = 0.25f;
@@ -206,12 +240,12 @@ namespace OneTapDemolition
             {
                 elapsed += Time.unscaledDeltaTime;
                 float t = Mathf.Clamp01(elapsed / fadeDuration);
-                comboText.color = new Color(baseColor.r, baseColor.g, baseColor.b, Mathf.Lerp(1f, 0f, t));
+                bannerText.color = new Color(color.r, color.g, color.b, Mathf.Lerp(1f, 0f, t));
                 yield return null;
             }
 
-            comboText.gameObject.SetActive(false);
-            comboRoutine = null;
+            bannerText.gameObject.SetActive(false);
+            bannerRoutine = null;
         }
 
         private IEnumerator PunchScale(Transform target, float from, float to, float duration)
