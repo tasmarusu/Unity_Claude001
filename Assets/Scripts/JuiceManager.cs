@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using UnityEngine;
 using UnityEngine.Events;
@@ -39,6 +40,12 @@ namespace OneTapDemolition
         [Tooltip("連鎖でスコアが加算されるたびに呼ばれる。UI側の数値ポップ演出などをここに接続する。")]
         public UnityEvent<Vector3, int> OnScorePopupRequested;
 
+        /// <summary>
+        /// タップの衝撃が起きるたびに呼ばれる。totalChainCountはこの一撃で崩れる階数。
+        /// コンボ演出(「3 CHAIN!」等)をUI側で接続する。
+        /// </summary>
+        public event Action<int> OnChainImpact;
+
         private Vector3 cameraOriginalLocalPosition;
         private Coroutine shakeRoutine;
         private Coroutine hitStopRoutine;
@@ -76,6 +83,7 @@ namespace OneTapDemolition
             Shake(totalChainCount);
             DoHitStop();
             PlayImpactSound();
+            OnChainImpact?.Invoke(totalChainCount);
         }
 
         /// <summary>
@@ -134,7 +142,7 @@ namespace OneTapDemolition
             {
                 elapsed += Time.unscaledDeltaTime;
                 float damper = 1f - Mathf.Clamp01(elapsed / shakeDuration);
-                Vector2 offset = Random.insideUnitCircle * magnitude * damper;
+                Vector2 offset = UnityEngine.Random.insideUnitCircle * magnitude * damper;
                 cameraTransform.localPosition = cameraOriginalLocalPosition + new Vector3(offset.x, offset.y, 0f);
                 yield return null;
             }
