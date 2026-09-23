@@ -56,8 +56,11 @@ Shader "Custom/ToonLit"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma multi_compile_fwdbase
+            #pragma multi_compile_fog
             #include "UnityCG.cginc"
             #include "Lighting.cginc"
+            #include "AutoLight.cginc"
 
             struct appdata
             {
@@ -72,6 +75,8 @@ Shader "Custom/ToonLit"
                 float3 worldNormal : TEXCOORD0;
                 float2 uv : TEXCOORD1;
                 float3 worldPos : TEXCOORD2;
+                SHADOW_COORDS(3)
+                UNITY_FOG_COORDS(4)
             };
 
             sampler2D _MainTex;
@@ -88,6 +93,8 @@ Shader "Custom/ToonLit"
                 o.worldNormal = UnityObjectToWorldNormal(v.normal);
                 o.worldPos = mul(unity_ObjectToWorld, v.vertex).xyz;
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
+                TRANSFER_SHADOW(o)
+                UNITY_TRANSFER_FOG(o, o.pos);
                 return o;
             }
 
@@ -100,6 +107,9 @@ Shader "Custom/ToonLit"
                 float band = smoothstep(-0.05, 0.05, ndl);
                 band = band * 0.5 + smoothstep(0.4, 0.55, ndl) * 0.5;
 
+                fixed shadowAtten = SHADOW_ATTENUATION(i);
+                band *= shadowAtten;
+
                 fixed4 tex = tex2D(_MainTex, i.uv) * _Color;
                 fixed3 shaded = lerp(_ShadowColor.rgb, fixed3(1,1,1), band) * tex.rgb * _LightColor0.rgb;
 
@@ -108,7 +118,37 @@ Shader "Custom/ToonLit"
                 fixed3 rimCol = _RimColor.rgb * pow(rim, _RimPower) * band * 0.25;
 
                 fixed3 result = saturate(shaded + rimCol);
-                return fixed4(result, tex.a);
+                fixed4 finalColor = fixed4(result, tex.a);
+                UNITY_APPLY_FOG(i.fogCoord, finalColor);
+                return finalColor;
+            }
+            ENDCG
+        }
+
+        Pass
+        {
+            Name "ShadowCaster"
+            Tags { "LightMode"="ShadowCaster" }
+
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma multi_compile_shadowcaster
+            #include "UnityCG.cginc"
+
+            struct appdata { float4 vertex : POSITION; float3 normal : NORMAL; };
+            struct v2f { V2F_SHADOW_CASTER; };
+
+            v2f vert (appdata v)
+            {
+                v2f o;
+                TRANSFER_SHADOW_CASTER_NORMALOFFSET(o)
+                return o;
+            }
+
+            fixed4 frag (v2f i) : SV_Target
+            {
+                SHADOW_CASTER_FRAGMENT(i)
             }
             ENDCG
         }
