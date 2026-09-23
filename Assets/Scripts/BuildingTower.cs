@@ -15,7 +15,10 @@ namespace OneTapDemolition
         [SerializeField] private float floorHeight = 1f;
 
         [Header("Chain Settings")]
-        [SerializeField] private float chainDelay = 0.05f;
+        [Tooltip("連鎖の最初の間隔(秒)。段が進むごとにchainDelayAccelerationずつ縮まり、崩落が加速していく感覚を出す。")]
+        [SerializeField] private float chainDelay = 0.09f;
+        [SerializeField] private float chainDelayAcceleration = 0.006f;
+        [SerializeField] private float minChainDelay = 0.035f;
 
         private readonly List<Floor> floors = new List<Floor>();
         private int aliveFloorCount;
@@ -151,7 +154,7 @@ namespace OneTapDemolition
 
                 if (i > startIndex)
                 {
-                    yield return new WaitForSeconds(chainDelay);
+                    yield return new WaitForSeconds(DelayForStep(chainStep));
                 }
             }
 
@@ -167,7 +170,7 @@ namespace OneTapDemolition
 
                     chainStep++;
                     DemolishOne(floor, hitPoint, chainStep);
-                    yield return new WaitForSeconds(chainDelay);
+                    yield return new WaitForSeconds(DelayForStep(chainStep));
                 }
             }
 
@@ -175,6 +178,14 @@ namespace OneTapDemolition
             {
                 GameManager.Instance?.OnTowerCleared();
             }
+        }
+
+        /// <summary>
+        /// 連鎖の段が進むほど間隔を詰めて、崩落が加速していく感覚を出す。
+        /// </summary>
+        private float DelayForStep(int chainStep)
+        {
+            return Mathf.Max(minChainDelay, chainDelay - chainDelayAcceleration * Mathf.Max(0, chainStep - 1));
         }
 
         private void DemolishOne(Floor floor, Vector3 hitPoint, int chainStep)
