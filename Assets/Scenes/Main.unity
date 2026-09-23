@@ -383,6 +383,7 @@ MonoBehaviour:
   - {fileID: 2558430474080769242, guid: a0c1601bf85919d41a53f6accb740363, type: 3}
   towerSpawnPoint: {fileID: 0}
   nextTowerDelay: 1.5
+  boostForceMultiplier: 2.5
 --- !u!1 &600000
 GameObject:
   m_ObjectHideFlags: 0
@@ -13760,7 +13761,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: "\u25B6 2\u500D\u306B\u3059\u308B"
+  m_Text: "\u26A1 \u5F37\u5316\u3059\u308B"
 --- !u!222 &1139503376
 CanvasRenderer:
   m_ObjectHideFlags: 0

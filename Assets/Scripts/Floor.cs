@@ -21,6 +21,7 @@ namespace OneTapDemolition
         private BuildingTower ownerTower;
         private int floorIndex;
         private bool isDemolished;
+        private float forceMultiplier = 1f;
 
         public int FloorIndex => floorIndex;
         public bool IsDemolished => isDemolished;
@@ -40,6 +41,7 @@ namespace OneTapDemolition
             floorIndex = index;
             ownerTower = tower;
             isDemolished = false;
+            forceMultiplier = 1f;
 
             rb.isKinematic = true;
 
@@ -47,6 +49,14 @@ namespace OneTapDemolition
             {
                 accentBand.SetActive(accentInterval > 0 && index % accentInterval == 0);
             }
+        }
+
+        /// <summary>
+        /// リワード広告の「デモリションブースト」等、崩落時の吹っ飛び方を強化する倍率を設定する。
+        /// </summary>
+        public void SetForceMultiplier(float multiplier)
+        {
+            forceMultiplier = Mathf.Max(0.1f, multiplier);
         }
 
         /// <summary>
@@ -70,8 +80,8 @@ namespace OneTapDemolition
             }
             pushDirection = (pushDirection.normalized + Vector3.up * 0.5f).normalized;
 
-            rb.AddForce(pushDirection * launchForce, ForceMode.Impulse);
-            rb.AddTorque(Random.insideUnitSphere * launchTorque, ForceMode.Impulse);
+            rb.AddForce(pushDirection * (launchForce * forceMultiplier), ForceMode.Impulse);
+            rb.AddTorque(Random.insideUnitSphere * (launchTorque * forceMultiplier), ForceMode.Impulse);
 
             JuiceManager.Instance?.PlayFloorDestroyEffect(transform.position, chainStep);
         }
