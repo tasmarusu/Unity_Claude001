@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -7,7 +7,7 @@ namespace OneTapDemolition
     /// <summary>
     /// JuiceManagerの演出フックを受けて、崩落した階から「+N」を浮かせるポップアップと、
     /// 連鎖数が2以上のときに「N CHAIN!」を中央に出すコンボ表示、
-    /// リワード広告視聴時の「POWER UP!」バナーを行う。
+    /// リワード広告視聴時の「POWER UP!」バナー、建築史アンロック時のトーストを行う。
     /// シーンに手動配置せず、実行時に自分でCanvas/Text等を生成する
     /// (他セッションによるシーン上書きでUIごと消えるのを避けるため)。
     /// </summary>
@@ -19,6 +19,7 @@ namespace OneTapDemolition
         [SerializeField] private float popupRiseDistance = 80f;
         [SerializeField] private float bannerHoldDuration = 0.6f;
         [SerializeField] private float flashDuration = 0.18f;
+        [SerializeField] private float historyToastHoldDuration = 2.0f;
 
         private Canvas targetCanvas;
         private Camera mainCamera;
@@ -27,8 +28,15 @@ namespace OneTapDemolition
         private Coroutine bannerRoutine;
         private Coroutine flashRoutine;
 
+        private GameObject historyToastRoot;
+        private CanvasGroup historyCanvasGroup;
+        private Image historyIconImage;
+        private Text historyText;
+        private Coroutine historyRoutine;
+
         private static readonly Color ComboColor = new Color(1f, 0.85f, 0.2f, 1f);
         private static readonly Color PowerUpColor = new Color(0.45f, 0.85f, 1f, 1f);
+        private static readonly Color HistoryColor = new Color(1f, 0.95f, 0.78f, 1f);
 
         /// <summary>
         /// シーンへの手動配置不要で自動的に生き始める。他セッションによるシーン上書きの影響を受けない。
@@ -56,6 +64,7 @@ namespace OneTapDemolition
             targetCanvas = FindOrCreateCanvas();
             CreateFlashImage();
             CreateBannerText();
+            CreateHistoryToast();
 
             if (JuiceManager.Instance != null)
             {
@@ -144,6 +153,66 @@ namespace OneTapDemolition
             outline.effectDistance = new Vector2(3, -3);
 
             go.SetActive(false);
+        }
+
+        private void CreateHistoryToast()
+        {
+            GameObject root = new GameObject("HistoryUnlockToast", typeof(RectTransform), typeof(CanvasGroup));
+            root.transform.SetParent(targetCanvas.transform, false);
+
+            RectTransform rootRect = root.GetComponent<RectTransform>();
+            rootRect.anchorMin = new Vector2(0.5f, 0.83f);
+            rootRect.anchorMax = new Vector2(0.5f, 0.83f);
+            rootRect.pivot = new Vector2(0.5f, 0.5f);
+            rootRect.sizeDelta = new Vector2(680, 128);
+            rootRect.anchoredPosition = Vector2.zero;
+
+            historyCanvasGroup = root.GetComponent<CanvasGroup>();
+
+            GameObject bg = new GameObject("Background", typeof(RectTransform), typeof(Image));
+            bg.transform.SetParent(root.transform, false);
+            RectTransform bgRect = bg.GetComponent<RectTransform>();
+            bgRect.anchorMin = Vector2.zero;
+            bgRect.anchorMax = Vector2.one;
+            bgRect.sizeDelta = Vector2.zero;
+            Image bgImage = bg.GetComponent<Image>();
+            bgImage.color = new Color(0.05f, 0.05f, 0.09f, 0.8f);
+
+            GameObject iconGO = new GameObject("Icon", typeof(RectTransform), typeof(Image));
+            iconGO.transform.SetParent(root.transform, false);
+            RectTransform iconRect = iconGO.GetComponent<RectTransform>();
+            iconRect.anchorMin = new Vector2(0f, 0.5f);
+            iconRect.anchorMax = new Vector2(0f, 0.5f);
+            iconRect.pivot = new Vector2(0f, 0.5f);
+            iconRect.sizeDelta = new Vector2(100, 100);
+            iconRect.anchoredPosition = new Vector2(14, 0);
+            historyIconImage = iconGO.GetComponent<Image>();
+            historyIconImage.preserveAspect = true;
+
+            GameObject textGO = new GameObject("Label", typeof(RectTransform), typeof(Text), typeof(Outline));
+            textGO.transform.SetParent(root.transform, false);
+            RectTransform textRect = textGO.GetComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0f, 0f);
+            textRect.anchorMax = new Vector2(1f, 1f);
+            textRect.offsetMin = new Vector2(130, 10);
+            textRect.offsetMax = new Vector2(-16, -10);
+
+            historyText = textGO.GetComponent<Text>();
+            historyText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            historyText.alignment = TextAnchor.MiddleLeft;
+            historyText.fontSize = 26;
+            historyText.fontStyle = FontStyle.Bold;
+            historyText.color = HistoryColor;
+            historyText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            historyText.verticalOverflow = VerticalWrapMode.Truncate;
+
+            Outline outline = textGO.GetComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(2, -2);
+
+            historyToastRoot = root;
+            historyCanvasGroup.alpha = 0f;
+            historyToastRoot.SetActive(false);
         }
 
         private void OnScorePopup(Vector3 worldPosition, int amount)
@@ -271,6 +340,61 @@ namespace OneTapDemolition
             }
 
             PlayBanner("POWER UP!", PowerUpColor);
+        }
+
+        /// <summary>
+        /// 建築史トリビアが1項目解放されたことを知らせるトースト。
+        /// GameManager.OnTowerClearedから、クリアのたびに呼ばれる。
+        /// </summary>
+        public void ShowHistoryUnlock(BuildingHistoryManager.Entry entry)
+        {
+            if (historyToastRoot == null)
+            {
+                return;
+            }
+
+            if (historyRoutine != null)
+            {
+                StopCoroutine(historyRoutine);
+            }
+
+            if (historyIconImage != null)
+            {
+                Sprite icon = BuildingHistoryManager.LoadIcon(entry.IconId);
+                historyIconImage.sprite = icon;
+                historyIconImage.enabled = icon != null;
+            }
+
+            if (historyText != null)
+            {
+                historyText.text = "建築史解放 " + entry.Era + "\n" + entry.Name;
+            }
+
+            historyRoutine = StartCoroutine(HistoryToastRoutine());
+        }
+
+        private IEnumerator HistoryToastRoutine()
+        {
+            historyToastRoot.SetActive(true);
+            historyToastRoot.transform.localScale = Vector3.one * 0.7f;
+            historyCanvasGroup.alpha = 1f;
+
+            yield return PunchScale(historyToastRoot.transform, 0.7f, 1f, 0.2f);
+
+            yield return new WaitForSecondsRealtime(historyToastHoldDuration);
+
+            float elapsed = 0f;
+            const float fadeDuration = 0.3f;
+            while (elapsed < fadeDuration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / fadeDuration);
+                historyCanvasGroup.alpha = Mathf.Lerp(1f, 0f, t);
+                yield return null;
+            }
+
+            historyToastRoot.SetActive(false);
+            historyRoutine = null;
         }
 
         private void PlayBanner(string text, Color color)

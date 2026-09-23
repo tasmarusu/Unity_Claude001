@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace OneTapDemolition
 {
@@ -12,16 +12,25 @@ namespace OneTapDemolition
         [Header("Physics")]
         [SerializeField] private float launchForce = 3.5f;
         [SerializeField] private float launchTorque = 2.5f;
+        [Tooltip("hitPointから見た方向にどれだけ従うか(0=完全ランダム散らばり、1=常に同じ方向)。連鎖中の全階が同じ方向に滑り落ちるのを防ぐ。")]
+        [SerializeField] private float hitDirectionWeight = 0.4f;
+        [SerializeField] private float scatterWeight = 0.8f;
+        [SerializeField] private float upwardLift = 0.6f;
+        [Tooltip("連鎖が進むほど吹っ飛びが強くなる割合(段ごとの加算率)。")]
+        [SerializeField] private float chainKickPerStep = 0.06f;
 
         [Header("Visuals")]
         [SerializeField] private GameObject accentBand;
         [SerializeField] private int accentInterval = 4;
+
+        private static readonly Color FallbackDebrisTint = new Color(0.6f, 0.57f, 0.53f, 1f);
 
         private Rigidbody rb;
         private BuildingTower ownerTower;
         private int floorIndex;
         private bool isDemolished;
         private float forceMultiplier = 1f;
+        private Color debrisTint = FallbackDebrisTint;
 
         public int FloorIndex => floorIndex;
         public bool IsDemolished => isDemolished;
@@ -31,6 +40,32 @@ namespace OneTapDemolition
         {
             rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
+            CacheDebrisTint();
+        }
+
+        /// <summary>
+        /// この階の外観(Accentマテリアルの色)からデブリの色を1回だけ拾っておく。
+        /// タワーバリアントごとに崩落物の色が変わり、「その建物の破片」らしさが出る。
+        /// </summary>
+        private void CacheDebrisTint()
+        {
+            Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer renderer in renderers)
+            {
+                Material material = renderer.sharedMaterial;
+                if (material == null || material.name.IndexOf("Accent", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                Color baseColor = material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor")
+                    : material.HasProperty("_Color") ? material.color
+                    : FallbackDebrisTint;
+
+                // 建材が砕けた質感に寄せるため、地色(コンクリートグレー)を少し混ぜる
+                debrisTint = Color.Lerp(baseColor, FallbackDebrisTint, 0.35f);
+                return;
+            }
         }
 
         /// <summary>
@@ -62,6 +97,9 @@ namespace OneTapDemolition
         /// <summary>
         /// この階を破壊する。物理演算をオンにして弾け飛ばし、演出フックを呼ぶ。
         /// chainStep: この階が連鎖の何番目に崩れたか(1始まり)。
+        /// 連鎖中は全階に同じhitPointが渡ってくるため、方向をそのまま使うと全階が同じ向きに
+        /// 滑り落ちるだけになる。ランダムな散らばりと上向きのリフトを混ぜて、爆発的にバラける見た目にする。
+        /// また連鎖が進むほど勢いを増して、崩落が加速していく感覚を出す。
         /// </summary>
         public void Demolish(Vector3 hitPoint, int chainStep)
         {
@@ -73,17 +111,20 @@ namespace OneTapDemolition
             isDemolished = true;
             rb.isKinematic = false;
 
-            Vector3 pushDirection = transform.position - hitPoint;
-            if (pushDirection.sqrMagnitude < 0.01f)
-            {
-                pushDirection = Random.onUnitSphere;
-            }
-            pushDirection = (pushDirection.normalized + Vector3.up * 0.5f).normalized;
+            Vector3 hitDirection = transform.position - hitPoint;
+            hitDirection = hitDirection.sqrMagnitude < 0.01f ? Random.onUnitSphere : hitDirection.normalized;
 
-            rb.AddForce(pushDirection * (launchForce * forceMultiplier), ForceMode.Impulse);
-            rb.AddTorque(Random.insideUnitSphere * (launchTorque * forceMultiplier), ForceMode.Impulse);
+            Vector3 pushDirection = (hitDirection * hitDirectionWeight
+                + Random.insideUnitSphere * scatterWeight
+                + Vector3.up * upwardLift).normalized;
 
-            JuiceManager.Instance?.PlayFloorDestroyEffect(transform.position, chainStep);
+            float chainKick = 1f + chainKickPerStep * Mathf.Max(0, chainStep - 1);
+            float totalForce = launchForce * forceMultiplier * chainKick;
+
+            rb.AddForce(pushDirection * totalForce, ForceMode.Impulse);
+            rb.AddTorque(Random.insideUnitSphere * (launchTorque * forceMultiplier * chainKick), ForceMode.Impulse);
+
+            JuiceManager.Instance?.PlayFloorDestroyEffect(transform.position, chainStep, debrisTint);
         }
     }
 }

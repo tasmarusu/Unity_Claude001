@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using GoogleMobileAds.Api;
 using UnityEngine;
 
@@ -65,12 +65,45 @@ namespace OneTapDemolition
             bannerView?.Destroy();
 
             bannerView = new BannerView(BannerAdUnitId, AdSize.Banner, AdPosition.Bottom);
+            bannerView.OnBannerAdLoaded += OnBannerLoaded;
             bannerView.LoadAd(new AdRequest());
         }
 
         public void HideBanner()
         {
             bannerView?.Hide();
+            ClearBannerSafeArea();
+        }
+
+        /// <summary>
+        /// バナーの実ピクセル高さを取得できたら、3Dシーンを映すカメラのビューポートを
+        /// バナー分だけ上に詰める。ゲーム側の映像(崩落・デブリ)がバナーの裏に隠れて
+        /// 見えなくなるのを防ぐための「安全領域」対応。UIキャンバス側は元々上寄りの
+        /// レイアウトなので影響しない。
+        /// </summary>
+        private void OnBannerLoaded()
+        {
+            if (bannerView == null || Camera.main == null || Screen.height <= 0)
+            {
+                return;
+            }
+
+            float heightPixels = bannerView.GetHeightInPixels();
+            if (heightPixels <= 0f)
+            {
+                return;
+            }
+
+            float normalizedHeight = Mathf.Clamp01(heightPixels / Screen.height);
+            Camera.main.rect = new Rect(0f, normalizedHeight, 1f, 1f - normalizedHeight);
+        }
+
+        private void ClearBannerSafeArea()
+        {
+            if (Camera.main != null)
+            {
+                Camera.main.rect = new Rect(0f, 0f, 1f, 1f);
+            }
         }
 
         // ---------------- Interstitial ----------------
