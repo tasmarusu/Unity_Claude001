@@ -23,11 +23,14 @@ namespace OneTapDemolition
         [SerializeField] private GameObject accentBand;
         [SerializeField] private int accentInterval = 4;
 
+        private static readonly Color FallbackDebrisTint = new Color(0.6f, 0.57f, 0.53f, 1f);
+
         private Rigidbody rb;
         private BuildingTower ownerTower;
         private int floorIndex;
         private bool isDemolished;
         private float forceMultiplier = 1f;
+        private Color debrisTint = FallbackDebrisTint;
 
         public int FloorIndex => floorIndex;
         public bool IsDemolished => isDemolished;
@@ -37,6 +40,32 @@ namespace OneTapDemolition
         {
             rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
+            CacheDebrisTint();
+        }
+
+        /// <summary>
+        /// この階の外観(Accentマテリアルの色)からデブリの色を1回だけ拾っておく。
+        /// タワーバリアントごとに崩落物の色が変わり、「その建物の破片」らしさが出る。
+        /// </summary>
+        private void CacheDebrisTint()
+        {
+            Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer renderer in renderers)
+            {
+                Material material = renderer.sharedMaterial;
+                if (material == null || material.name.IndexOf("Accent", System.StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                Color baseColor = material.HasProperty("_BaseColor") ? material.GetColor("_BaseColor")
+                    : material.HasProperty("_Color") ? material.color
+                    : FallbackDebrisTint;
+
+                // 建材が砕けた質感に寄せるため、地色(コンクリートグレー)を少し混ぜる
+                debrisTint = Color.Lerp(baseColor, FallbackDebrisTint, 0.35f);
+                return;
+            }
         }
 
         /// <summary>
@@ -95,7 +124,7 @@ namespace OneTapDemolition
             rb.AddForce(pushDirection * totalForce, ForceMode.Impulse);
             rb.AddTorque(Random.insideUnitSphere * (launchTorque * forceMultiplier * chainKick), ForceMode.Impulse);
 
-            JuiceManager.Instance?.PlayFloorDestroyEffect(transform.position, chainStep);
+            JuiceManager.Instance?.PlayFloorDestroyEffect(transform.position, chainStep, debrisTint);
         }
     }
 }
