@@ -18,11 +18,14 @@ namespace OneTapDemolition
         [SerializeField] private float popupDuration = 0.7f;
         [SerializeField] private float popupRiseDistance = 80f;
         [SerializeField] private float bannerHoldDuration = 0.6f;
+        [SerializeField] private float flashDuration = 0.18f;
 
         private Canvas targetCanvas;
         private Camera mainCamera;
         private Text bannerText;
+        private Image flashImage;
         private Coroutine bannerRoutine;
+        private Coroutine flashRoutine;
 
         private static readonly Color ComboColor = new Color(1f, 0.85f, 0.2f, 1f);
         private static readonly Color PowerUpColor = new Color(0.45f, 0.85f, 1f, 1f);
@@ -51,6 +54,7 @@ namespace OneTapDemolition
         {
             mainCamera = Camera.main;
             targetCanvas = FindOrCreateCanvas();
+            CreateFlashImage();
             CreateBannerText();
 
             if (JuiceManager.Instance != null)
@@ -98,6 +102,23 @@ namespace OneTapDemolition
             scaler.matchWidthOrHeight = 0.5f;
 
             return canvas;
+        }
+
+        private void CreateFlashImage()
+        {
+            GameObject go = new GameObject("ImpactFlash", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(targetCanvas.transform, false);
+            go.transform.SetAsFirstSibling();
+
+            RectTransform rect = go.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.sizeDelta = Vector2.zero;
+            rect.anchoredPosition = Vector2.zero;
+
+            flashImage = go.GetComponent<Image>();
+            flashImage.color = new Color(1f, 1f, 1f, 0f);
+            flashImage.raycastTarget = false;
         }
 
         private void CreateBannerText()
@@ -192,12 +213,50 @@ namespace OneTapDemolition
 
         private void OnChainImpact(int totalChainCount)
         {
+            PlayFlash(totalChainCount);
+
             if (totalChainCount < 2 || bannerText == null)
             {
                 return;
             }
 
             PlayBanner(totalChainCount + " CHAIN!", ComboColor);
+        }
+
+        /// <summary>
+        /// タップ衝撃のたびに画面を一瞬白く光らせる。連鎖数が多いほど強く光る。
+        /// </summary>
+        private void PlayFlash(int totalChainCount)
+        {
+            if (flashImage == null)
+            {
+                return;
+            }
+
+            if (flashRoutine != null)
+            {
+                StopCoroutine(flashRoutine);
+            }
+
+            float peakAlpha = Mathf.Clamp01(0.25f + 0.05f * Mathf.Max(0, totalChainCount - 1));
+            flashRoutine = StartCoroutine(FlashRoutine(peakAlpha));
+        }
+
+        private IEnumerator FlashRoutine(float peakAlpha)
+        {
+            flashImage.color = new Color(1f, 1f, 1f, peakAlpha);
+
+            float elapsed = 0f;
+            while (elapsed < flashDuration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / flashDuration);
+                flashImage.color = new Color(1f, 1f, 1f, Mathf.Lerp(peakAlpha, 0f, t));
+                yield return null;
+            }
+
+            flashImage.color = new Color(1f, 1f, 1f, 0f);
+            flashRoutine = null;
         }
 
         /// <summary>
