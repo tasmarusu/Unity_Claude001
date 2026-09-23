@@ -20,6 +20,9 @@ namespace OneTapDemolition
         private readonly List<Floor> floors = new List<Floor>();
         private int aliveFloorCount;
         private float activeForceMultiplier = 1f;
+        private bool bothWaysDemolish;
+        private int tapCountThisTower;
+        private float spawnTime;
 
         public bool IsCleared => aliveFloorCount <= 0;
         public int FloorCount => floors.Count;
@@ -35,12 +38,26 @@ namespace OneTapDemolition
         public bool IsBoosted => activeForceMultiplier > 1f;
 
         /// <summary>
+        /// このタワーへの通算タップ回数(スコアのワンタップボーナス計算に使う)。
+        /// </summary>
+        public int TapCount => tapCountThisTower;
+
+        /// <summary>
+        /// タワー出現からの経過秒数(スコアのスピードボーナス計算に使う)。
+        /// </summary>
+        public float ElapsedSinceSpawn => Time.time - spawnTime;
+
+        /// <summary>
         /// 指定階数分のFloorを下から積み上げて生成する。
         /// forceMultiplierが1より大きい場合、崩落時の吹っ飛びが強化される(リワード広告のブースト用)。
+        /// bothWaysDemolishがtrueの場合、タップした階から上だけでなく下方向にも連鎖が広がる(貫通ブラスト強化)。
         /// </summary>
-        public void BuildTower(float forceMultiplier = 1f)
+        public void BuildTower(float forceMultiplier = 1f, bool bothWaysDemolish = false)
         {
             activeForceMultiplier = Mathf.Max(1f, forceMultiplier);
+            this.bothWaysDemolish = bothWaysDemolish;
+            tapCountThisTower = 0;
+            spawnTime = Time.time;
             ClearExisting();
 
             for (int i = 0; i < floorCount; i++)
@@ -70,7 +87,7 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// TapDemolishControllerからのタップ判定を受けて、その階と上階の連鎖崩落を開始する。
+        /// TapDemolishControllerからのタップ判定を受けて、その階と上階(強化時は下階も)の連鎖崩落を開始する。
         /// </summary>
         public void RequestDemolish(Floor tappedFloor, Vector3 hitPoint)
         {
@@ -79,7 +96,13 @@ namespace OneTapDemolition
                 return;
             }
 
+            tapCountThisTower++;
+
             int totalChainCount = CountRemainingFromIndex(tappedFloor.FloorIndex);
+            if (bothWaysDemolish)
+            {
+                totalChainCount += CountRemainingBelowIndex(tappedFloor.FloorIndex);
+            }
             JuiceManager.Instance?.TriggerImpact(totalChainCount);
 
             StartCoroutine(CollapseFromFloor(tappedFloor.FloorIndex, hitPoint));
@@ -89,6 +112,19 @@ namespace OneTapDemolition
         {
             int count = 0;
             for (int i = startIndex; i < floors.Count; i++)
+            {
+                if (floors[i] != null && !floors[i].IsDemolished)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        private int CountRemainingBelowIndex(int startIndex)
+        {
+            int count = 0;
+            for (int i = startIndex - 1; i >= 0; i--)
             {
                 if (floors[i] != null && !floors[i].IsDemolished)
                 {
@@ -111,15 +147,7 @@ namespace OneTapDemolition
                 }
 
                 chainStep++;
-                FreeFromNeighborCollisions(floor);
-                floor.Demolish(hitPoint, chainStep);
-                aliveFloorCount--;
-
-                if (ScoreManager.Instance != null)
-                {
-                    int scoreAdded = ScoreManager.Instance.AddChainScore(chainStep);
-                    JuiceManager.Instance?.ShowScorePopup(floor.transform.position, scoreAdded);
-                }
+                DemolishOne(floor, hitPoint, chainStep);
 
                 if (i > startIndex)
                 {
@@ -127,9 +155,38 @@ namespace OneTapDemolition
                 }
             }
 
+            if (bothWaysDemolish)
+            {
+                for (int i = startIndex - 1; i >= 0; i--)
+                {
+                    Floor floor = floors[i];
+                    if (floor == null || floor.IsDemolished)
+                    {
+                        continue;
+                    }
+
+                    chainStep++;
+                    DemolishOne(floor, hitPoint, chainStep);
+                    yield return new WaitForSeconds(chainDelay);
+                }
+            }
+
             if (IsCleared)
             {
                 GameManager.Instance?.OnTowerCleared();
+            }
+        }
+
+        private void DemolishOne(Floor floor, Vector3 hitPoint, int chainStep)
+        {
+            FreeFromNeighborCollisions(floor);
+            floor.Demolish(hitPoint, chainStep);
+            aliveFloorCount--;
+
+            if (ScoreManager.Instance != null)
+            {
+                int scoreAdded = ScoreManager.Instance.AddChainScore(chainStep, tapCountThisTower, ElapsedSinceSpawn);
+                JuiceManager.Instance?.ShowScorePopup(floor.transform.position, scoreAdded);
             }
         }
 

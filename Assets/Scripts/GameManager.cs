@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace OneTapDemolition
 {
@@ -15,7 +15,7 @@ namespace OneTapDemolition
         [SerializeField] private float nextTowerDelay = 1.5f;
 
         [Header("Reward Boost")]
-        [Tooltip("リワード広告視聴後、次のタワーの崩落吹っ飛び力に掛かる倍率。")]
+        [Tooltip("リワード広告視聴後、次のタワーの崩落吹っ飛び力に掛かる倍率。同時に貫通ブラスト(上下両方向の連鎖)も付与する。")]
         [SerializeField] private float boostForceMultiplier = 2.5f;
 
         private BuildingTower currentTower;
@@ -48,7 +48,7 @@ namespace OneTapDemolition
             currentTower = Instantiate(prefab, spawnPosition, Quaternion.identity);
 
             float multiplier = nextTowerBoosted ? boostForceMultiplier : 1f;
-            currentTower.BuildTower(multiplier);
+            currentTower.BuildTower(multiplier, nextTowerBoosted);
             CameraFraming.Instance?.FrameTower(currentTower.TotalHeight);
 
             if (nextTowerBoosted)
@@ -59,11 +59,17 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// BuildingTowerが全階崩壊したときに呼ばれる。少し間を置いて次のタワーを生成する。
+        /// BuildingTowerが全階崩壊したときに呼ばれる。建築史を1項目解放し、少し間を置いて次のタワーを生成する。
         /// </summary>
         public void OnTowerCleared()
         {
             ScoreManager.Instance?.ResetScore();
+
+            BuildingHistoryManager.Entry? unlocked = BuildingHistoryManager.Instance?.TryUnlockNext();
+            if (unlocked.HasValue)
+            {
+                ScoreFeedbackUI.Instance?.ShowHistoryUnlock(unlocked.Value);
+            }
 
             AdsManager.Instance?.NotifyTowerCleared();
             RewardBonusUI.Instance?.ShowIfAvailable();
@@ -72,7 +78,7 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// リワード広告を最後まで見た後に呼ばれる。次に生成されるタワーの崩落を強化する。
+        /// リワード広告を最後まで見た後に呼ばれる。次に生成されるタワーの崩落を強化する(吹っ飛び力+貫通ブラスト)。
         /// </summary>
         public void ApplyNextTowerBoost()
         {
