@@ -49,6 +49,7 @@ namespace OneTapDemolition
 
             float multiplier = nextTowerBoosted ? boostForceMultiplier : 1f;
             currentTower.BuildTower(multiplier);
+            CameraFraming.Instance?.FrameTower(currentTower.TotalHeight);
 
             if (nextTowerBoosted)
             {
