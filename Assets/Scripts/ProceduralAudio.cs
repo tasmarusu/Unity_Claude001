@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace OneTapDemolition
 {
@@ -53,6 +53,113 @@ namespace OneTapDemolition
             }
 
             return BuildClip("ProceduralDestroyCrunch", data, sampleRate);
+        }
+
+        /// <summary>
+        /// ゲート階を通過した「ピロン」という上昇チャイム。倍率が高いほど高い音で呼ぶ。
+        /// </summary>
+        public static AudioClip CreateGateChime(float baseFrequency, int sampleRate = 44100)
+        {
+            float duration = 0.26f;
+            int samples = Mathf.CeilToInt(duration * sampleRate);
+            float[] data = new float[samples];
+            for (int i = 0; i < samples; i++)
+            {
+                float t = i / (float)sampleRate;
+                float envelope = Mathf.Exp(-t * 9f) * Mathf.Clamp01(t * 200f);
+                float f = t < 0.08f ? baseFrequency : baseFrequency * 1.5f;
+                float tone = Mathf.Sin(2f * Mathf.PI * f * t) * 0.6f + Mathf.Sin(2f * Mathf.PI * f * 2f * t) * 0.2f;
+                data[i] = Mathf.Clamp(tone * envelope * 0.7f, -1f, 1f);
+            }
+            return BuildClip("ProceduralGateChime", data, sampleRate);
+        }
+
+        /// <summary>
+        /// 保護階を壊した/失敗したときの、下降する濁ったブザー。
+        /// </summary>
+        public static AudioClip CreateFail(int sampleRate = 44100)
+        {
+            float duration = 0.55f;
+            int samples = Mathf.CeilToInt(duration * sampleRate);
+            float[] data = new float[samples];
+            float phase = 0f;
+            for (int i = 0; i < samples; i++)
+            {
+                float t = i / (float)sampleRate;
+                float freq = Mathf.Lerp(220f, 70f, t / duration);
+                phase += 2f * Mathf.PI * freq / sampleRate;
+                float saw = Mathf.Repeat(phase / (2f * Mathf.PI), 1f) * 2f - 1f;
+                float envelope = Mathf.Exp(-t * 3.5f);
+                data[i] = Mathf.Clamp(saw * envelope * 0.55f, -1f, 1f);
+            }
+            return BuildClip("ProceduralFail", data, sampleRate);
+        }
+
+        /// <summary>
+        /// 星が1つ点くたびの「キラン」。indexが上がるほど高くなる。
+        /// </summary>
+        public static AudioClip CreateStarNote(int index, int sampleRate = 44100)
+        {
+            float[] notes = { 659.25f, 783.99f, 987.77f };
+            float f0 = notes[Mathf.Clamp(index, 0, notes.Length - 1)];
+            float duration = 0.4f;
+            int samples = Mathf.CeilToInt(duration * sampleRate);
+            float[] data = new float[samples];
+            for (int i = 0; i < samples; i++)
+            {
+                float t = i / (float)sampleRate;
+                float envelope = Mathf.Exp(-t * 6f) * Mathf.Clamp01(t * 300f);
+                float tone = Mathf.Sin(2f * Mathf.PI * f0 * t) * 0.55f
+                    + Mathf.Sin(2f * Mathf.PI * f0 * 2f * t) * 0.25f
+                    + Mathf.Sin(2f * Mathf.PI * f0 * 3f * t) * 0.1f;
+                data[i] = Mathf.Clamp(tone * envelope, -1f, 1f);
+            }
+            return BuildClip("ProceduralStarNote" + index, data, sampleRate);
+        }
+
+        /// <summary>
+        /// ステージクリア(特に星3つ)の短いアルペジオのファンファーレ。
+        /// </summary>
+        public static AudioClip CreateFanfare(int sampleRate = 44100)
+        {
+            float[] notes = { 523.25f, 659.25f, 783.99f, 1046.5f };
+            float noteLen = 0.13f;
+            float duration = noteLen * notes.Length + 0.45f;
+            int samples = Mathf.CeilToInt(duration * sampleRate);
+            float[] data = new float[samples];
+            for (int n = 0; n < notes.Length; n++)
+            {
+                int start = Mathf.RoundToInt(n * noteLen * sampleRate);
+                for (int i = start; i < samples; i++)
+                {
+                    float t = (i - start) / (float)sampleRate;
+                    if (t > 0.6f)
+                    {
+                        break;
+                    }
+                    float envelope = Mathf.Exp(-t * 5f) * Mathf.Clamp01(t * 250f);
+                    float tone = Mathf.Sin(2f * Mathf.PI * notes[n] * t) * 0.5f + Mathf.Sin(2f * Mathf.PI * notes[n] * 2f * t) * 0.18f;
+                    data[i] = Mathf.Clamp(data[i] + tone * envelope * 0.6f, -1f, 1f);
+                }
+            }
+            return BuildClip("ProceduralFanfare", data, sampleRate);
+        }
+
+        /// <summary>
+        /// ボタンを押した瞬間の短い「カチッ」。
+        /// </summary>
+        public static AudioClip CreateUiClick(int sampleRate = 44100)
+        {
+            float duration = 0.07f;
+            int samples = Mathf.CeilToInt(duration * sampleRate);
+            float[] data = new float[samples];
+            for (int i = 0; i < samples; i++)
+            {
+                float t = i / (float)sampleRate;
+                float envelope = Mathf.Exp(-t * 60f);
+                data[i] = Mathf.Sin(2f * Mathf.PI * 1200f * t) * envelope * 0.5f;
+            }
+            return BuildClip("ProceduralUiClick", data, sampleRate);
         }
 
         private static AudioClip BuildClip(string name, float[] data, int sampleRate)

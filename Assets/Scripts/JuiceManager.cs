@@ -59,6 +59,12 @@ namespace OneTapDemolition
         private static Material cachedDebrisMaterial;
         private static Material cachedDustMaterial;
         private static Texture2D cachedDustTexture;
+        private AudioSource sfxSource;
+        private AudioClip failClip;
+        private AudioClip fanfareClip;
+        private AudioClip clickClip;
+        private readonly System.Collections.Generic.Dictionary<int, AudioClip> gateClips = new System.Collections.Generic.Dictionary<int, AudioClip>();
+        private readonly AudioClip[] starClips = new AudioClip[3];
 
         private void Awake()
         {
@@ -82,6 +88,9 @@ namespace OneTapDemolition
             {
                 audioSource = GetComponent<AudioSource>();
             }
+
+            sfxSource = gameObject.AddComponent<AudioSource>();
+            sfxSource.playOnAwake = false;
 
             if (impactClip == null)
             {
@@ -409,6 +418,58 @@ namespace OneTapDemolition
 
             audioSource.pitch = Mathf.Min(maxPitch, basePitch + pitchStepPerChain * Mathf.Max(0, chainStep - 1));
             audioSource.PlayOneShot(destroyClip);
+        }
+
+        /// <summary>
+        /// ゲート通過音。通過後の倍率積が高いほど高い音になる(倍率が下がる場合は低い音)。
+        /// </summary>
+        public void PlayGate(float gateProduct)
+        {
+            int semitone = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(Mathf.Max(0.25f, gateProduct), 2f) * 5f), -6, 14);
+            AudioClip clip;
+            if (!gateClips.TryGetValue(semitone, out clip))
+            {
+                clip = ProceduralAudio.CreateGateChime(660f * Mathf.Pow(2f, semitone / 12f));
+                gateClips[semitone] = clip;
+            }
+            sfxSource.PlayOneShot(clip, 0.8f);
+        }
+
+        public void PlayFail()
+        {
+            if (failClip == null)
+            {
+                failClip = ProceduralAudio.CreateFail();
+            }
+            sfxSource.PlayOneShot(failClip, 0.9f);
+        }
+
+        public void PlayStarNote(int index)
+        {
+            index = Mathf.Clamp(index, 0, starClips.Length - 1);
+            if (starClips[index] == null)
+            {
+                starClips[index] = ProceduralAudio.CreateStarNote(index);
+            }
+            sfxSource.PlayOneShot(starClips[index], 0.9f);
+        }
+
+        public void PlayFanfare()
+        {
+            if (fanfareClip == null)
+            {
+                fanfareClip = ProceduralAudio.CreateFanfare();
+            }
+            sfxSource.PlayOneShot(fanfareClip, 0.9f);
+        }
+
+        public void PlayUiClick()
+        {
+            if (clickClip == null)
+            {
+                clickClip = ProceduralAudio.CreateUiClick();
+            }
+            sfxSource.PlayOneShot(clickClip, 0.7f);
         }
 
         /// <summary>

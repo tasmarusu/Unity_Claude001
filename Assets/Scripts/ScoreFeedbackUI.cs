@@ -35,6 +35,8 @@ namespace OneTapDemolition
         private Coroutine historyRoutine;
 
         private static readonly Color ComboColor = new Color(1f, 0.85f, 0.2f, 1f);
+        private static readonly Color GoodGateColor = new Color(0.6f, 1f, 0.55f, 1f);
+        private static readonly Color BadGateColor = new Color(1f, 0.4f, 0.4f, 1f);
         private static readonly Color PowerUpColor = new Color(0.45f, 0.85f, 1f, 1f);
         private static readonly Color HistoryColor = new Color(1f, 0.95f, 0.78f, 1f);
 
@@ -395,6 +397,35 @@ namespace OneTapDemolition
 
             historyToastRoot.SetActive(false);
             historyRoutine = null;
+        }
+
+        /// <summary>
+        /// ゲート階を通過した瞬間の「×3」バナー。通過後の合計倍率も出して、得点が伸びた理由を見せる。
+        /// </summary>
+        public void ShowGateBanner(float gateValue, float gateProduct)
+        {
+            if (bannerText == null)
+            {
+                return;
+            }
+
+            bool bad = gateValue < 1f;
+            string label = bad ? "÷2" : "×" + Mathf.RoundToInt(gateValue);
+            if (Mathf.Abs(gateProduct - gateValue) > 0.01f)
+            {
+                label += "  (合計 ×" + gateProduct.ToString("0.#") + ")";
+            }
+            PlayBanner(label, bad ? BadGateColor : GoodGateColor);
+        }
+
+        public void ShowFailBanner()
+        {
+            if (bannerText == null)
+            {
+                return;
+            }
+
+            PlayBanner("NG!", BadGateColor);
         }
 
         private void PlayBanner(string text, Color color)

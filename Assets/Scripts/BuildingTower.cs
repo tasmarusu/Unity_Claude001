@@ -1,17 +1,17 @@
-using System.Collections;
+﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace OneTapDemolition
 {
     /// <summary>
-    /// Floorプレハブを指定階数分積み上げて生成し、タップされた階より上の階を連鎖的に崩落させる。
+    /// StageSpecに従ってFloorを下から積み上げ、タップされた階より上の階を連鎖的に崩落させる。
+    /// 崩落中に通過したゲート階の倍率でスコアを増幅し、保護階を壊したらステージ失敗をGameManagerへ伝える。
     /// </summary>
     public class BuildingTower : MonoBehaviour
     {
         [Header("Build Settings")]
         [SerializeField] private Floor floorPrefab;
-        [SerializeField] private int floorCount = 10;
         [SerializeField] private float floorHeight = 1f;
 
         [Header("Chain Settings")]
@@ -21,58 +21,32 @@ namespace OneTapDemolition
         [SerializeField] private float minChainDelay = 0.035f;
 
         private readonly List<Floor> floors = new List<Floor>();
-        private int aliveFloorCount;
-        private float activeForceMultiplier = 1f;
-        private bool bothWaysDemolish;
-        private int tapCountThisTower;
-        private float spawnTime;
+        private StageSpec spec;
+        private int limit;
+        private bool resolving;
 
-        public bool IsCleared => aliveFloorCount <= 0;
+        public StageSpec Spec => spec;
         public int FloorCount => floors.Count;
+        public int AliveCount => limit;
+        public bool IsResolving => resolving;
 
-        /// <summary>
-        /// このタワーの積み上げ高さ(階数×階高)。カメラの自動フレーミングに使う。
-        /// </summary>
-        public float TotalHeight => floorCount * floorHeight;
+        public float TotalHeight => floors.Count * floorHeight;
 
-        /// <summary>
-        /// このタワーがデモリションブースト(強化)状態で生成されたかどうか。
-        /// </summary>
-        public bool IsBoosted => activeForceMultiplier > 1f;
-
-        /// <summary>
-        /// このタワーへの通算タップ回数(スコアのワンタップボーナス計算に使う)。
-        /// </summary>
-        public int TapCount => tapCountThisTower;
-
-        /// <summary>
-        /// タワー出現からの経過秒数(スコアのスピードボーナス計算に使う)。
-        /// </summary>
-        public float ElapsedSinceSpawn => Time.time - spawnTime;
-
-        /// <summary>
-        /// 指定階数分のFloorを下から積み上げて生成する。
-        /// forceMultiplierが1より大きい場合、崩落時の吹っ飛びが強化される(リワード広告のブースト用)。
-        /// bothWaysDemolishがtrueの場合、タップした階から上だけでなく下方向にも連鎖が広がる(貫通ブラスト強化)。
-        /// </summary>
-        public void BuildTower(float forceMultiplier = 1f, bool bothWaysDemolish = false)
+        public void BuildTower(StageSpec stageSpec)
         {
-            activeForceMultiplier = Mathf.Max(1f, forceMultiplier);
-            this.bothWaysDemolish = bothWaysDemolish;
-            tapCountThisTower = 0;
-            spawnTime = Time.time;
             ClearExisting();
+            spec = stageSpec;
 
-            for (int i = 0; i < floorCount; i++)
+            for (int i = 0; i < spec.Floors.Length; i++)
             {
                 Floor floor = Instantiate(floorPrefab, transform);
                 floor.transform.localPosition = new Vector3(0f, i * floorHeight, 0f);
-                floor.Setup(i, this);
-                floor.SetForceMultiplier(activeForceMultiplier);
+                floor.Setup(i, this, spec.Floors[i]);
                 floors.Add(floor);
             }
 
-            aliveFloorCount = floors.Count;
+            limit = floors.Count;
+            resolving = false;
         }
 
         private void ClearExisting()
@@ -86,62 +60,91 @@ namespace OneTapDemolition
             }
 
             floors.Clear();
-            aliveFloorCount = 0;
+            limit = 0;
         }
 
         /// <summary>
-        /// TapDemolishControllerからのタップ判定を受けて、その階と上階(強化時は下階も)の連鎖崩落を開始する。
+        /// 指定階をタップした場合の予測スコア。保護階を巻き込むならhitsProtected=true。
         /// </summary>
-        public void RequestDemolish(Floor tappedFloor, Vector3 hitPoint)
+        public bool PredictTap(int index, out int score, out bool hitsProtected)
         {
-            if (tappedFloor == null || tappedFloor.IsDemolished)
+            score = 0;
+            hitsProtected = false;
+            if (spec == null || index < 0 || index >= limit)
             {
-                return;
+                return false;
             }
 
-            tapCountThisTower++;
-
-            int totalChainCount = CountRemainingFromIndex(tappedFloor.FloorIndex);
-            if (bothWaysDemolish)
-            {
-                totalChainCount += CountRemainingBelowIndex(tappedFloor.FloorIndex);
-            }
-            JuiceManager.Instance?.TriggerImpact(totalChainCount);
-
-            StartCoroutine(CollapseFromFloor(tappedFloor.FloorIndex, hitPoint));
+            float historyBonus = ScoreManager.Instance != null ? ScoreManager.Instance.HistoryBonus : 0f;
+            bool safe = ScoreRules.SimulateTap(spec.Floors, index, limit, historyBonus, out score);
+            hitsProtected = !safe;
+            return true;
         }
 
-        private int CountRemainingFromIndex(int startIndex)
+        /// <summary>
+        /// 狙っている階(index)と、その上で巻き込まれる階をハイライトする。-1で解除。
+        /// </summary>
+        public void SetAimPreview(int index)
         {
-            int count = 0;
-            for (int i = startIndex; i < floors.Count; i++)
+            bool danger = false;
+            if (index >= 0 && index < limit)
             {
-                if (floors[i] != null && !floors[i].IsDemolished)
-                {
-                    count++;
-                }
+                int ignored;
+                PredictTap(index, out ignored, out danger);
             }
-            return count;
+
+            for (int i = 0; i < floors.Count; i++)
+            {
+                Floor floor = floors[i];
+                if (floor == null || floor.IsDemolished)
+                {
+                    continue;
+                }
+
+                AimState state = AimState.None;
+                if (index >= 0 && i == index)
+                {
+                    state = AimState.Target;
+                }
+                else if (index >= 0 && i > index && i < limit)
+                {
+                    state = AimState.InChain;
+                }
+                floor.SetAim(state, danger);
+            }
         }
 
-        private int CountRemainingBelowIndex(int startIndex)
+        /// <summary>
+        /// TapDemolishControllerからのタップ確定を受けて、その階と上階の連鎖崩落を開始する。
+        /// ショットを消費できなかった場合(ステージ外・崩落中・弾切れ)は何もしない。
+        /// </summary>
+        public bool RequestDemolish(Floor tappedFloor, Vector3 hitPoint)
         {
-            int count = 0;
-            for (int i = startIndex - 1; i >= 0; i--)
+            if (resolving || tappedFloor == null || tappedFloor.IsDemolished || tappedFloor.FloorIndex >= limit)
             {
-                if (floors[i] != null && !floors[i].IsDemolished)
-                {
-                    count++;
-                }
+                return false;
             }
-            return count;
+            if (GameManager.Instance == null || !GameManager.Instance.TryConsumeShot())
+            {
+                return false;
+            }
+
+            resolving = true;
+            SetAimPreview(-1);
+
+            int startIndex = tappedFloor.FloorIndex;
+            JuiceManager.Instance?.TriggerImpact(limit - startIndex);
+            StartCoroutine(CollapseFromFloor(startIndex, hitPoint));
+            return true;
         }
 
         private IEnumerator CollapseFromFloor(int startIndex, Vector3 hitPoint)
         {
             int chainStep = 0;
+            float gateProduct = 1f;
+            bool protectedHit = false;
 
-            for (int i = startIndex; i < floors.Count; i++)
+            for (int i = startIndex; i < limit; i++)
             {
                 Floor floor = floors[i];
                 if (floor == null || floor.IsDemolished)
@@ -150,7 +153,21 @@ namespace OneTapDemolition
                 }
 
                 chainStep++;
-                DemolishOne(floor, hitPoint, chainStep);
+
+                if (floor.Spec.Kind == FloorKind.Gate)
+                {
+                    gateProduct *= floor.Spec.GateValue;
+                    ScoreFeedbackUI.Instance?.ShowGateBanner(floor.Spec.GateValue, gateProduct);
+                    JuiceManager.Instance?.PlayGate(gateProduct);
+                }
+                else if (floor.Spec.Kind == FloorKind.Protected)
+                {
+                    protectedHit = true;
+                    ScoreFeedbackUI.Instance?.ShowFailBanner();
+                    JuiceManager.Instance?.PlayFail();
+                }
+
+                DemolishOne(floor, hitPoint, chainStep, gateProduct);
 
                 if (i > startIndex)
                 {
@@ -158,26 +175,9 @@ namespace OneTapDemolition
                 }
             }
 
-            if (bothWaysDemolish)
-            {
-                for (int i = startIndex - 1; i >= 0; i--)
-                {
-                    Floor floor = floors[i];
-                    if (floor == null || floor.IsDemolished)
-                    {
-                        continue;
-                    }
-
-                    chainStep++;
-                    DemolishOne(floor, hitPoint, chainStep);
-                    yield return new WaitForSeconds(DelayForStep(chainStep));
-                }
-            }
-
-            if (IsCleared)
-            {
-                GameManager.Instance?.OnTowerCleared();
-            }
+            limit = startIndex;
+            resolving = false;
+            GameManager.Instance?.OnChainFinished(protectedHit);
         }
 
         /// <summary>
@@ -188,21 +188,20 @@ namespace OneTapDemolition
             return Mathf.Max(minChainDelay, chainDelay - chainDelayAcceleration * Mathf.Max(0, chainStep - 1));
         }
 
-        private void DemolishOne(Floor floor, Vector3 hitPoint, int chainStep)
+        private void DemolishOne(Floor floor, Vector3 hitPoint, int chainStep, float gateProduct)
         {
             FreeFromNeighborCollisions(floor);
             floor.Demolish(hitPoint, chainStep);
-            aliveFloorCount--;
 
             if (ScoreManager.Instance != null)
             {
-                int scoreAdded = ScoreManager.Instance.AddChainScore(chainStep, tapCountThisTower, ElapsedSinceSpawn);
+                int scoreAdded = ScoreManager.Instance.AddChainScore(chainStep, gateProduct);
                 JuiceManager.Instance?.ShowScorePopup(floor.transform.position, scoreAdded);
             }
         }
 
         /// <summary>
-        /// 崩落した階が他の階(残存階・既に崩落した階)と衝突して突っかからないよう、衝突判定を無効化する。
+        /// 崩落した階が他の階と衝突して突っかからないよう、衝突判定を無効化する。
         /// </summary>
         private void FreeFromNeighborCollisions(Floor floor)
         {
