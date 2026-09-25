@@ -15,10 +15,12 @@ namespace OneTapDemolition
         [SerializeField] private float floorHeight = 1f;
 
         [Header("Chain Settings")]
-        [Tooltip("連鎖の最初の間隔(秒)。段が進むごとにchainDelayAccelerationずつ縮まり、崩落が加速していく感覚を出す。")]
-        [SerializeField] private float chainDelay = 0.09f;
-        [SerializeField] private float chainDelayAcceleration = 0.006f;
-        [SerializeField] private float minChainDelay = 0.035f;
+        [Tooltip("階が揺れてヒビが入ってから崩れるまでの時間(秒)。何が壊れるかを目で追えるようにする。")]
+        [SerializeField] private float crackDuration = 0.09f;
+        [Tooltip("崩れてから次の階が揺れ始めるまでの最初の間隔(秒)。段が進むごとにchainGapAccelerationずつ縮まる。")]
+        [SerializeField] private float chainGap = 0.08f;
+        [SerializeField] private float chainGapAcceleration = 0.005f;
+        [SerializeField] private float minChainGap = 0.025f;
 
         private readonly List<Floor> floors = new List<Floor>();
         private StageSpec spec;
@@ -152,27 +154,36 @@ namespace OneTapDemolition
                     continue;
                 }
 
-                chainStep++;
+                // 揺れとヒビ → 崩壊 → ポイントが飛び出す、の順に見せる
+                floor.StartCrack(crackDuration);
+                yield return new WaitForSeconds(crackDuration);
 
-                if (floor.Spec.Kind == FloorKind.Gate)
+                chainStep++;
+                FloorSpec spec = floor.Spec;
+
+                if (spec.Kind == FloorKind.Gate)
                 {
-                    gateProduct *= floor.Spec.GateValue;
-                    ScoreFeedbackUI.Instance?.ShowGateBanner(floor.Spec.GateValue, gateProduct);
+                    gateProduct *= spec.GateValue;
+                    ScoreFeedbackUI.Instance?.ShowGateBanner(spec.GateValue, gateProduct);
                     JuiceManager.Instance?.PlayGate(gateProduct);
                 }
-                else if (floor.Spec.Kind == FloorKind.Protected)
+                else if (spec.Kind == FloorKind.Protected)
                 {
                     protectedHit = true;
                     ScoreFeedbackUI.Instance?.ShowFailBanner();
                     JuiceManager.Instance?.PlayFail();
                 }
 
+                Vector3 floorPosition = floor.transform.position;
                 DemolishOne(floor, hitPoint, chainStep, gateProduct);
+                GameManager.Instance?.NotifyChainStep(chainStep);
 
-                if (i > startIndex)
+                if (spec.Kind == FloorKind.Bonus)
                 {
-                    yield return new WaitForSeconds(DelayForStep(chainStep));
+                    GameManager.Instance?.TryAwardStar(StarReason.BonusFloor, floorPosition);
                 }
+
+                yield return new WaitForSeconds(GapForStep(chainStep));
             }
 
             limit = startIndex;
@@ -181,25 +192,26 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// 連鎖の段が進むほど間隔を詰めて、崩落が加速していく感覚を出す。
+        /// 連鎖が進むほど間隔を詰めて、崩落が加速していく感覚を出す。
         /// </summary>
-        private float DelayForStep(int chainStep)
+        private float GapForStep(int chainStep)
         {
-            return Mathf.Max(minChainDelay, chainDelay - chainDelayAcceleration * Mathf.Max(0, chainStep - 1));
+            return Mathf.Max(minChainGap, chainGap - chainGapAcceleration * Mathf.Max(0, chainStep - 1));
         }
 
         private void DemolishOne(Floor floor, Vector3 hitPoint, int chainStep, float gateProduct)
         {
             FreeFromNeighborCollisions(floor);
+            Vector3 popupPosition = floor.transform.position;
+            FloorKind kind = floor.Spec.Kind;
             floor.Demolish(hitPoint, chainStep);
 
             if (ScoreManager.Instance != null)
             {
-                int scoreAdded = ScoreManager.Instance.AddChainScore(chainStep, gateProduct);
-                JuiceManager.Instance?.ShowScorePopup(floor.transform.position, scoreAdded);
+                int scoreAdded = ScoreManager.Instance.AddChainScore(chainStep, gateProduct, kind);
+                JuiceManager.Instance?.ShowScorePopup(popupPosition, scoreAdded);
             }
         }
-
         /// <summary>
         /// 崩落した階が他の階と衝突して突っかからないよう、衝突判定を無効化する。
         /// </summary>

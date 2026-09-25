@@ -8,6 +8,8 @@ namespace OneTapDemolition
     /// </summary>
     public static class SafeAreaUtil
     {
+        private const float BannerMargin = 24f;
+
         public struct Insets
         {
             public float Left, Right, Top, Bottom;
@@ -27,7 +29,11 @@ namespace OneTapDemolition
                 Top = (screenSize.y - safeArea.yMax) * sy,
                 Bottom = safeArea.yMin * sy
             };
-            insets.Bottom = Mathf.Max(insets.Bottom, bannerFractionOfHeight * canvasSize.y);
+            if (bannerFractionOfHeight > 0f)
+            {
+                // バナーのすぐ上にボタンが密着しないよう、少し余白を足す
+                insets.Bottom = Mathf.Max(insets.Bottom, bannerFractionOfHeight * canvasSize.y + BannerMargin);
+            }
             return insets;
         }
 

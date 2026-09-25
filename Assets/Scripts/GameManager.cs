@@ -11,20 +11,29 @@ namespace OneTapDemolition
         Result
     }
 
+    public enum FailReason
+    {
+        None,
+        ProtectedDestroyed,
+        OutOfShots
+    }
+
     public class StageResult
     {
         public StageSpec Spec;
         public bool Failed;
+        public FailReason FailReason;
         public int Score;
         public int Stars;
+        public bool[] StarFlags;
         public int ShotsUsed;
-        public bool NewBest;
         public BuildingHistoryManager.Entry? Unlocked;
     }
 
     /// <summary>
-    /// ステージ進行(準備→プレイ→崩落中→リザルト)と、ショット数・星評価・進行度の保存を制御する。
+    /// ステージ進行(準備→プレイ→崩落中→リザルト)と、ショット数・ゲージMAX(クリア)・☆・進行度の保存を制御する。
     /// UIはここのイベントを購読するだけで、進行ロジックは持たない。
+    /// ☆は3種類: ボーナス階の破壊 / 1発で連鎖5 / 表示スコアがゲージの☆マークに到達。
     /// </summary>
     public class GameManager : MonoBehaviour
     {
@@ -37,17 +46,23 @@ namespace OneTapDemolition
         [SerializeField] private Transform towerSpawnPoint;
 
         [Header("Flow")]
-        [Tooltip("最後の崩落が終わってからリザルトを出すまでの待ち(破片が落ち着くのを見せる)。")]
-        [SerializeField] private float resultDelay = 1.0f;
+        [Tooltip("最後の崩落が終わってからリザルトを出すまでの待ち。飛んでいるポイントとMAX演出が完了するのを待つ。")]
+        [SerializeField] private float resultDelay = 1.6f;
 
         private BuildingTower currentTower;
         private int shotsUsed;
         private int totalShots;
+        private bool gaugeMaxAnnounced;
+        private FailReason pendingFailReason;
+        private readonly bool[] starFlags = new bool[3];
 
         public event Action<StageSpec, int> StageStarted;
         public event Action<int, int> ShotsChanged;
         public event Action<StageResult> StageEnded;
         public event Action<GameState> StateChanged;
+        public event Action<StarReason, Vector3?> StarAwarded;
+        public event Action GaugeMaxReached;
+        public event Action<int> ComboChanged;
 
         public GameState State { get; private set; } = GameState.Ready;
         public StageSpec CurrentSpec { get; private set; }
@@ -56,6 +71,19 @@ namespace OneTapDemolition
         public BuildingTower CurrentTower => currentTower;
 
         public bool CanShoot => State == GameState.Playing && ShotsLeft > 0;
+
+        public int StarCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (bool f in starFlags)
+                {
+                    n += f ? 1 : 0;
+                }
+                return n;
+            }
+        }
 
         private void Awake()
         {
@@ -67,8 +95,31 @@ namespace OneTapDemolition
             Instance = this;
         }
 
+        private void OnEnable()
+        {
+            if (ScoreManager.Instance != null)
+            {
+                ScoreManager.Instance.DisplayedScoreChanged += OnDisplayedScoreChanged;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (ScoreManager.Instance != null)
+            {
+                ScoreManager.Instance.DisplayedScoreChanged -= OnDisplayedScoreChanged;
+            }
+        }
+
         private void Start()
         {
+            // ScoreManagerのAwakeがこのOnEnableより後の場合に備えて、ここでも購読を保証する
+            if (ScoreManager.Instance != null)
+            {
+                ScoreManager.Instance.DisplayedScoreChanged -= OnDisplayedScoreChanged;
+                ScoreManager.Instance.DisplayedScoreChanged += OnDisplayedScoreChanged;
+            }
+
             CurrentStageIndex = Mathf.Max(1, PlayerPrefs.GetInt(StageIndexKey, 1));
             PrepareStage(CurrentStageIndex, 0);
         }
@@ -96,12 +147,16 @@ namespace OneTapDemolition
 
             ScoreManager.Instance?.ResetScore();
 
+            Array.Clear(starFlags, 0, starFlags.Length);
+            gaugeMaxAnnounced = false;
+            pendingFailReason = FailReason.None;
             totalShots = CurrentSpec.Shots + extraShots;
             ShotsLeft = totalShots;
             shotsUsed = 0;
             SetState(GameState.Ready);
             StageStarted?.Invoke(CurrentSpec, totalShots);
             ShotsChanged?.Invoke(ShotsLeft, totalShots);
+            ComboChanged?.Invoke(0);
         }
 
         public void BeginPlay()
@@ -148,45 +203,106 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// BuildingTowerの連鎖崩落が終わったときに呼ばれる。次のショットへ進むか、ステージを終えるかを決める。
+        /// 連鎖の何段目まで崩れたか(1発ごと)。HUDのコンボ表示に使い、連鎖5で☆を出す。
+        /// </summary>
+        public void NotifyChainStep(int chainStep)
+        {
+            ComboChanged?.Invoke(chainStep);
+            if (chainStep >= ScoreRules.ComboStarStep)
+            {
+                TryAwardStar(StarReason.Combo, null);
+            }
+        }
+
+        /// <summary>
+        /// ☆を1つ与える(理由ごとに1ステージ1回)。worldPositionがあれば、その階から☆が飛び出す。
+        /// </summary>
+        public void TryAwardStar(StarReason reason, Vector3? worldPosition)
+        {
+            int slot = (int)reason;
+            if (starFlags[slot] || (State != GameState.Playing && State != GameState.Resolving && State != GameState.Result))
+            {
+                return;
+            }
+
+            starFlags[slot] = true;
+            StarAwarded?.Invoke(reason, worldPosition);
+        }
+
+        private void OnDisplayedScoreChanged(int added, int displayed)
+        {
+            if (CurrentSpec == null)
+            {
+                return;
+            }
+
+            if (!gaugeMaxAnnounced && displayed >= CurrentSpec.TargetScore && displayed > 0)
+            {
+                gaugeMaxAnnounced = true;
+                GaugeMaxReached?.Invoke();
+            }
+            if (displayed >= CurrentSpec.StarScore && displayed > 0)
+            {
+                TryAwardStar(StarReason.Overshoot, null);
+            }
+        }
+
+        /// <summary>
+        /// BuildingTowerの連鎖崩落が終わったときに呼ばれる。クリア(ゲージMAX)・失敗・次のショットのどれかを決める。
         /// </summary>
         public void OnChainFinished(bool protectedHit)
         {
+            ComboChanged?.Invoke(0);
+
+            int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
             bool towerDone = currentTower == null
                 || currentTower.AliveCount <= 0
                 || !ScoreRules.HasSafeTap(CurrentSpec.Floors, currentTower.AliveCount);
 
-            if (protectedHit || ShotsLeft <= 0 || towerDone)
+            if (protectedHit)
             {
-                EndStage(protectedHit);
-                return;
+                EndStage(FailReason.ProtectedDestroyed);
             }
-
-            SetState(GameState.Playing);
+            else if (score >= CurrentSpec.TargetScore)
+            {
+                EndStage(FailReason.None);
+            }
+            else if (ShotsLeft <= 0 || towerDone)
+            {
+                EndStage(FailReason.OutOfShots);
+            }
+            else
+            {
+                SetState(GameState.Playing);
+            }
         }
 
-        private void EndStage(bool failed)
+        private void EndStage(FailReason reason)
         {
             SetState(GameState.Result);
-            pendingFailed = failed;
+            pendingFailReason = reason;
             Invoke(nameof(ShowResult), resultDelay);
         }
 
-        private bool pendingFailed;
-
         private void ShowResult()
         {
+            // 飛行中のポイントが残っていても、ここで全て表示に反映して☆判定を確定させる
+            ScoreManager.Instance?.FlushDisplay();
+
+            bool failed = pendingFailReason != FailReason.None;
             int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
             StageResult result = new StageResult
             {
                 Spec = CurrentSpec,
-                Failed = pendingFailed,
+                Failed = failed,
+                FailReason = pendingFailReason,
                 Score = score,
-                Stars = CurrentSpec.StarsFor(score, pendingFailed),
+                Stars = failed ? 0 : StarCount,
+                StarFlags = (bool[])starFlags.Clone(),
                 ShotsUsed = shotsUsed
             };
 
-            if (!pendingFailed)
+            if (!failed)
             {
                 ScoreManager.Instance?.CommitBestScore();
                 result.Unlocked = BuildingHistoryManager.Instance?.TryUnlockNext();

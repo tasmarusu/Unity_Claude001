@@ -53,3 +53,8 @@ crashlytics-build.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# MCP for Unity screenshots and recording scratch
+Assets/Screenshots/
+Assets/Screenshots.meta
+/Captures/

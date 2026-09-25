@@ -146,6 +146,25 @@ namespace OneTapDemolition
         }
 
         /// <summary>
+        /// ポイントがスコアに着いた瞬間の「ピッ」。stepが上がるごとに音階が上がり、連続で着くほど高くなる。
+        /// </summary>
+        public static AudioClip CreateScoreTick(int step, int sampleRate = 44100)
+        {
+            float[] scale = { 523.25f, 587.33f, 659.25f, 783.99f, 880f, 1046.5f, 1174.7f, 1318.5f };
+            float f = scale[Mathf.Clamp(step, 0, scale.Length - 1)];
+            float duration = 0.1f;
+            int samples = Mathf.CeilToInt(duration * sampleRate);
+            float[] data = new float[samples];
+            for (int i = 0; i < samples; i++)
+            {
+                float t = i / (float)sampleRate;
+                float envelope = Mathf.Exp(-t * 32f) * Mathf.Clamp01(t * 400f);
+                data[i] = Mathf.Sin(2f * Mathf.PI * f * t) * envelope * 0.5f;
+            }
+            return BuildClip("ProceduralScoreTick" + step, data, sampleRate);
+        }
+
+        /// <summary>
         /// ボタンを押した瞬間の短い「カチッ」。
         /// </summary>
         public static AudioClip CreateUiClick(int sampleRate = 44100)

@@ -154,7 +154,7 @@ namespace OneTapDemolition
                 stars[i] = star;
             }
 
-            scoreText = UiKit.Label(root, "Score", "0", 120, Color.white);
+            scoreText = UiKit.Label(root, "Score", "0", 96, Color.white);
             UiKit.SetAnchored(scoreText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 130f), new Vector2(800f, 150f));
 
             bestText = UiKit.Label(root, "Best", "", 40, new Color(1f, 0.9f, 0.4f, 1f));
@@ -195,9 +195,11 @@ namespace OneTapDemolition
         private IEnumerator ShowResultRoutine(StageResult r)
         {
             resultPanel.SetActive(true);
-            resultTitle.text = r.Failed ? "FAILED" : (r.Stars >= 3 ? "PERFECT!" : "STAGE CLEAR");
+            resultTitle.text = r.Failed ? "FAILED" : (r.Stars >= 3 ? "PERFECT!" : "CLEAR!");
             resultTitle.color = r.Failed ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
-            scoreText.text = "0";
+            // KEEPを壊した失敗は得点が無効。高い数字が成功に見えないよう灰色にする
+            scoreText.color = r.FailReason == FailReason.ProtectedDestroyed ? new Color(0.6f, 0.6f, 0.65f, 1f) : Color.white;
+            scoreText.text = "0 / " + r.Spec.TargetScore;
             bestText.text = "";
             foreach (Image s in stars)
             {
@@ -229,11 +231,22 @@ namespace OneTapDemolition
             while (t < countDuration)
             {
                 t += Time.unscaledDeltaTime;
-                scoreText.text = Mathf.RoundToInt(Mathf.Lerp(0f, r.Score, Mathf.Clamp01(t / countDuration))).ToString();
+                scoreText.text = Mathf.RoundToInt(Mathf.Lerp(0f, r.Score, Mathf.Clamp01(t / countDuration))) + " / " + r.Spec.TargetScore;
                 yield return null;
             }
-            scoreText.text = r.Score.ToString();
-            bestText.text = !r.Failed && ScoreManager.Instance != null && r.Score >= ScoreManager.Instance.BestScore && r.Score > 0 ? "NEW BEST!" : "";
+            scoreText.text = r.Score + " / " + r.Spec.TargetScore;
+            if (r.FailReason == FailReason.OutOfShots)
+            {
+                bestText.text = "あと " + Mathf.Max(0, r.Spec.TargetScore - r.Score) + " ptでMAX";
+            }
+            else if (r.FailReason == FailReason.ProtectedDestroyed)
+            {
+                bestText.text = "KEEPの階を壊してしまった";
+            }
+            else
+            {
+                bestText.text = ScoreManager.Instance != null && r.Score >= ScoreManager.Instance.BestScore && r.Score > 0 ? "NEW BEST!" : "";
+            }
 
             // 星を1つずつ点灯
             if (r.Failed)

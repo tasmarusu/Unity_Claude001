@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -16,6 +16,10 @@ namespace OneTapDemolition
         [SerializeField] private float punchDuration = 0.18f;
 
         private Coroutine punchRoutine;
+        private float shownScore;
+        private int targetScore;
+
+        public RectTransform ScoreTextRect => scoreText != null ? scoreText.rectTransform : null;
 
         private void Start()
         {
@@ -24,10 +28,12 @@ namespace OneTapDemolition
                 return;
             }
 
-            ScoreManager.Instance.ScoreChanged += OnScoreChanged;
+            ScoreManager.Instance.DisplayedScoreChanged += OnScoreChanged;
             ScoreManager.Instance.BestScoreUpdated += OnBestScoreUpdated;
 
-            UpdateScoreText(ScoreManager.Instance.CurrentScore);
+            targetScore = ScoreManager.Instance.DisplayedScore;
+            shownScore = targetScore;
+            UpdateScoreText(targetScore);
             UpdateBestScoreText(ScoreManager.Instance.BestScore);
         }
 
@@ -35,14 +41,35 @@ namespace OneTapDemolition
         {
             if (ScoreManager.Instance != null)
             {
-                ScoreManager.Instance.ScoreChanged -= OnScoreChanged;
+                ScoreManager.Instance.DisplayedScoreChanged -= OnScoreChanged;
                 ScoreManager.Instance.BestScoreUpdated -= OnBestScoreUpdated;
             }
         }
 
+        private void Update()
+        {
+            if (Mathf.Approximately(shownScore, targetScore))
+            {
+                return;
+            }
+
+            // 表示スコアが着いた分だけ数字が転がるように増える(一瞬で書き換わらない)
+            shownScore = Mathf.Lerp(shownScore, targetScore, 1f - Mathf.Exp(-14f * Time.unscaledDeltaTime));
+            if (Mathf.Abs(targetScore - shownScore) < 1f)
+            {
+                shownScore = targetScore;
+            }
+            UpdateScoreText(Mathf.RoundToInt(shownScore));
+        }
+
         private void OnScoreChanged(int addedAmount, int currentTotal)
         {
-            UpdateScoreText(currentTotal);
+            targetScore = currentTotal;
+            if (addedAmount == 0)
+            {
+                shownScore = currentTotal;
+                UpdateScoreText(currentTotal);
+            }
 
             if (addedAmount > 0 && scoreText != null)
             {

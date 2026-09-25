@@ -23,6 +23,7 @@ namespace OneTapDemolition
         private static readonly Color GateX3Color = new Color(1f, 0.85f, 0.25f, 1f);
         private static readonly Color GateBadColor = new Color(1f, 0.45f, 0.45f, 1f);
         private static readonly Color ProtectedColor = new Color(0.5f, 0.78f, 1f, 1f);
+        private static readonly Color BonusColor = new Color(1f, 0.82f, 0.2f, 1f);
 
         [Header("Physics")]
         [SerializeField] private float launchForce = 3.5f;
@@ -51,6 +52,10 @@ namespace OneTapDemolition
         private bool isDemolished;
         private Color debrisTint = FallbackDebrisTint;
         private Color kindTint = Color.white;
+        private AimState aimState = AimState.None;
+        private bool aimDanger;
+        private bool cracking;
+        private Vector3 restPosition;
 
         public FloorSpec Spec { get; private set; } = FloorSpec.Normal;
         public int FloorIndex => floorIndex;
@@ -137,6 +142,9 @@ namespace OneTapDemolition
                     kindTint = ProtectedColor;
                     label = "KEEP";
                     break;
+                case FloorKind.Bonus:
+                    kindTint = BonusColor;
+                    break;
                 default:
                     kindTint = Color.white;
                     break;
@@ -145,7 +153,9 @@ namespace OneTapDemolition
             if (spec.Kind != FloorKind.Normal)
             {
                 debrisTint = Color.Lerp(kindTint, FallbackDebrisTint, 0.2f);
-                badge = FloorBadge.Create(transform, label, kindTint, badgeDistance);
+                badge = spec.Kind == FloorKind.Bonus
+                    ? FloorBadge.CreateStar(transform, kindTint, badgeDistance)
+                    : FloorBadge.Create(transform, label, kindTint, badgeDistance);
             }
 
             SetAim(AimState.None, false);
@@ -156,11 +166,70 @@ namespace OneTapDemolition
         /// </summary>
         public void SetAim(AimState state, bool danger)
         {
+            aimState = state;
+            aimDanger = danger;
+            ApplyTint(1f);
+        }
+
+        /// <summary>
+        /// ボーナス階を金色に脈動させて「特別な階」だと気付かせる。他の階は何もしない。
+        /// </summary>
+        private void Update()
+        {
+            if (isDemolished || Spec.Kind != FloorKind.Bonus || aimState != AimState.None || cracking)
+            {
+                return;
+            }
+
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 4f);
+            ApplyTint(Mathf.Lerp(0.75f, 1.25f, pulse));
+        }
+
+        /// <summary>
+        /// 崩れる直前に階を細かく揺らして白く光らせる(ヒビ入り演出)。duration後にDemolishを呼ぶのは呼び出し側。
+        /// </summary>
+        public void StartCrack(float duration)
+        {
+            if (isDemolished || cracking)
+            {
+                return;
+            }
+            StartCoroutine(CrackRoutine(duration));
+        }
+
+        private System.Collections.IEnumerator CrackRoutine(float duration)
+        {
+            cracking = true;
+            restPosition = transform.localPosition;
+            JuiceManager.Instance?.PlayCrackEffect(transform.position);
+
+            float elapsed = 0f;
+            while (elapsed < duration && !isDemolished)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Clamp01(elapsed / duration);
+                Vector3 jitter = new Vector3(Random.Range(-1f, 1f), 0f, Random.Range(-1f, 1f)) * (0.04f + 0.05f * t);
+                transform.localPosition = restPosition + jitter;
+                ApplyTint(1f, Mathf.Lerp(0.15f, 0.7f, t));
+                yield return null;
+            }
+
+            if (!isDemolished)
+            {
+                transform.localPosition = restPosition;
+            }
+            cracking = false;
+        }
+
+        private void ApplyTint(float brightness, float whiteFlash = 0f)
+        {
             if (bodyRenderer == null)
             {
                 return;
             }
 
+            AimState state = aimState;
+            bool danger = aimDanger;
             Color tint = kindTint;
             switch (state)
             {
@@ -174,6 +243,7 @@ namespace OneTapDemolition
                     break;
             }
 
+            tint = Color.Lerp(tint * brightness, Color.white, whiteFlash);
             block.SetColor(ColorId, new Color(bodyBaseColor.r * tint.r, bodyBaseColor.g * tint.g, bodyBaseColor.b * tint.b, bodyBaseColor.a));
             bodyRenderer.SetPropertyBlock(block);
         }
@@ -191,6 +261,7 @@ namespace OneTapDemolition
 
             isDemolished = true;
             rb.isKinematic = false;
+            cracking = false;
             SetAim(AimState.None, false);
             if (badge != null)
             {

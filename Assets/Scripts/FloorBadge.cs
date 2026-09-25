@@ -12,6 +12,7 @@ namespace OneTapDemolition
         private Transform target;
         private float towardCamera;
         private Camera cam;
+        private bool pulse;
 
         public static FloorBadge Create(Transform floor, string label, Color color, float towardCameraDistance)
         {
@@ -60,6 +61,27 @@ namespace OneTapDemolition
             return badge;
         }
 
+        /// <summary>
+        /// ボーナス階用の脈動する☆バッジ。テキストではなく☆スプライトで表す(フォント依存を避ける)。
+        /// </summary>
+        public static FloorBadge CreateStar(Transform floor, Color color, float towardCameraDistance)
+        {
+            FloorBadge badge = Create(floor, "", color, towardCameraDistance);
+            badge.pulse = true;
+
+            GameObject iconGO = new GameObject("StarIcon", typeof(RectTransform), typeof(Image));
+            iconGO.transform.SetParent(badge.transform, false);
+            RectTransform rect = iconGO.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(110f, 110f);
+            Image icon = iconGO.GetComponent<Image>();
+            icon.sprite = UiSprites.Star;
+            icon.color = Color.Lerp(color, Color.white, 0.25f);
+            icon.raycastTarget = false;
+            return badge;
+        }
+
         public void Detach()
         {
             Destroy(gameObject);
@@ -86,6 +108,11 @@ namespace OneTapDemolition
             toCam = toCam.sqrMagnitude > 0.0001f ? toCam.normalized : Vector3.back;
             transform.position = target.position + toCam * towardCamera;
             transform.rotation = Quaternion.LookRotation(transform.position - cam.transform.position, Vector3.up);
+            if (pulse)
+            {
+                float s = 0.0095f * (1f + 0.12f * Mathf.Sin(Time.time * 5f));
+                transform.localScale = Vector3.one * s;
+            }
         }
     }
 }

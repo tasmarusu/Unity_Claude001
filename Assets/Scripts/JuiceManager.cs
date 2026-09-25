@@ -435,6 +435,29 @@ namespace OneTapDemolition
             sfxSource.PlayOneShot(clip, 0.8f);
         }
 
+        /// <summary>
+        /// 階にヒビが入る瞬間の小さな粉塵。崩壊本番の演出より控えめにして段階を分ける。
+        /// </summary>
+        public void PlayCrackEffect(Vector3 worldPosition)
+        {
+            SpawnDustPuff(worldPosition, 1);
+        }
+
+        private readonly AudioClip[] tickClips = new AudioClip[8];
+
+        /// <summary>
+        /// ポイントが表示に着いたときの音。stepが大きいほど高い音(連続獲得の盛り上がり)。
+        /// </summary>
+        public void PlayScoreTick(int step)
+        {
+            step = Mathf.Clamp(step, 0, tickClips.Length - 1);
+            if (tickClips[step] == null)
+            {
+                tickClips[step] = ProceduralAudio.CreateScoreTick(step);
+            }
+            sfxSource.PlayOneShot(tickClips[step], 0.6f);
+        }
+
         public void PlayFail()
         {
             if (failClip == null)

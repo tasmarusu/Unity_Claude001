@@ -4,7 +4,8 @@ namespace OneTapDemolition
 {
     /// <summary>
     /// ステージ番号から難易度カーブに沿ったタワー構成を決定的に生成する。
-    /// 最適解を総当たりで求めて、星のしきい値と「一番下をタップするのが最適とは限らない」ことを保証する。
+    /// 最適解を総当たりで求めて、クリア目標(MAX)と3つ目の☆のしきい値を決め、
+    /// 「一番下を押せばいい」だけの単調な配置は避ける。
     /// </summary>
     public static class StageGenerator
     {
@@ -13,6 +14,9 @@ namespace OneTapDemolition
         private const int MaxRerolls = 30;
         private static readonly float[] GoodGateValues = { 2f, 3f };
         private const float BadGateValue = 0.5f;
+        private const float TargetRatio = 0.6f;
+        private const float StarRatio = 0.9f;
+        private const int ScoreRounding = 50;
 
         public static StageSpec Generate(int stageIndex, float historyBonus)
         {
@@ -31,7 +35,7 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// 撃てる一番下の階(保護階があればその1つ上)。最適解の一手目がここなら「一番下を押せばいい」だけの単調なステージになる。
+        /// 撃てる一番下の階(保護階があればその1つ上)。最適解の一手目がここなら単調なステージになる。
         /// </summary>
         private static int LowestSafeTap(FloorSpec[] floors)
         {
@@ -61,10 +65,11 @@ namespace OneTapDemolition
                 floors[i] = FloorSpec.Normal;
             }
 
+            // 保護階より下は撃てなくなる。1発でコンボ☆(連鎖5)が狙える階数を必ず上に残す
+            int protectedMax = Mathf.Min(floorCount / 3 + 1, floorCount - ScoreRules.ComboStarStep);
             for (int i = 0; i < protectedCount; i++)
             {
-                // 保護階より下は一切撃てなくなるので、遊べる範囲を残すため下寄り(下から3分の1)に置く
-                int idx = PickFreeIndex(rng, floors, 1, Mathf.Max(2, floorCount / 3 + 1));
+                int idx = PickFreeIndex(rng, floors, 1, Mathf.Max(2, protectedMax));
                 if (idx >= 0)
                 {
                     floors[idx] = FloorSpec.Protect;
@@ -87,8 +92,17 @@ namespace OneTapDemolition
                 }
             }
 
+            // ☆のボーナス階は撃てる範囲(保護階より上)の中に1つ
+            int bonusIdx = PickFreeIndex(rng, floors, LowestSafeTap(floors), floorCount);
+            if (bonusIdx >= 0)
+            {
+                floors[bonusIdx] = FloorSpec.Bonus;
+            }
+
             int firstTap;
             int optimal = ScoreRules.BestScore(floors, floorCount, shots, historyBonus, out firstTap);
+            int target = Mathf.Max(ScoreRounding * 2, RoundTo(optimal * TargetRatio));
+            int star = Mathf.Max(target + ScoreRounding, RoundTo(optimal * StarRatio));
 
             return new StageSpec
             {
@@ -97,9 +111,14 @@ namespace OneTapDemolition
                 Shots = shots,
                 OptimalScore = optimal,
                 FirstOptimalTap = firstTap,
-                TwoStarScore = Mathf.CeilToInt(optimal * 0.6f),
-                ThreeStarScore = Mathf.CeilToInt(optimal * 0.9f)
+                TargetScore = target,
+                StarScore = star
             };
+        }
+
+        private static int RoundTo(float value)
+        {
+            return Mathf.RoundToInt(value / ScoreRounding) * ScoreRounding;
         }
 
         private static int PickFreeIndex(System.Random rng, FloorSpec[] floors, int minInclusive, int maxExclusive)

@@ -6,11 +6,13 @@ namespace OneTapDemolition
     {
         Normal,
         Gate,
-        Protected
+        Protected,
+        Bonus
     }
 
     /// <summary>
-    /// 1階分の種類。Gateは連鎖でその階以降に掛かる倍率(×2/×3/×0.5)、Protectedは崩すとステージ失敗。
+    /// 1階分の種類。Gateは連鎖でその階以降に掛かる倍率(×2/×3/×0.5)、Protectedは崩すとステージ失敗、
+    /// Bonusは得点が大きく、壊すと☆が1つ出る特別な階(金色に脈動する)。
     /// </summary>
     public struct FloorSpec
     {
@@ -20,10 +22,19 @@ namespace OneTapDemolition
         public static FloorSpec Normal => new FloorSpec { Kind = FloorKind.Normal, GateValue = 1f };
         public static FloorSpec Gate(float value) => new FloorSpec { Kind = FloorKind.Gate, GateValue = value };
         public static FloorSpec Protect => new FloorSpec { Kind = FloorKind.Protected, GateValue = 1f };
+        public static FloorSpec Bonus => new FloorSpec { Kind = FloorKind.Bonus, GateValue = 1f };
+    }
+
+    public enum StarReason
+    {
+        BonusFloor,
+        Combo,
+        Overshoot
     }
 
     /// <summary>
     /// 1ステージ分の定義。ステージ番号から決定的に生成されるので、リトライしても同じ配置になる。
+    /// TargetScoreに達するとゲージMAX=クリア。StarScoreまで伸ばすと3つ目の☆が出る(ゲージ上の☆マーク)。
     /// </summary>
     public class StageSpec
     {
@@ -32,44 +43,31 @@ namespace OneTapDemolition
         public int Shots;
         public int OptimalScore;
         public int FirstOptimalTap;
-        public int TwoStarScore;
-        public int ThreeStarScore;
-
-        public int StarsFor(int score, bool failed)
-        {
-            if (failed)
-            {
-                return 0;
-            }
-            if (score >= ThreeStarScore)
-            {
-                return 3;
-            }
-            if (score >= TwoStarScore)
-            {
-                return 2;
-            }
-            return 1;
-        }
+        public int TargetScore;
+        public int StarScore;
     }
 
     /// <summary>
     /// スコア計算の純粋ロジック。実際の加算・タップ前の予測表示・ステージ生成時の最適解探索で同じ式を共有する。
+    /// 1階の得点 = 100 × コンボ倍率 × ゲート倍率(その階までに通過したゲートの積) × ボーナス階の倍率 × (1+歴史解放ボーナス)。
     /// </summary>
     public static class ScoreRules
     {
-        public const int BasePoints = 10;
+        public const int BasePoints = 100;
         public const float ComboBonusPerStep = 0.1f;
         public const float ComboCap = 3f;
+        public const float BonusFloorMultiplier = 2f;
+        public const int ComboStarStep = 5;
 
         public static float ComboMultiplier(int chainStep)
         {
             return Mathf.Min(1f + ComboBonusPerStep * Mathf.Max(0, chainStep - 1), ComboCap);
         }
 
-        public static int FloorPoints(int chainStep, float gateProduct, float historyBonus)
+        public static int FloorPoints(int chainStep, float gateProduct, float historyBonus, FloorKind kind)
         {
-            return Mathf.RoundToInt(BasePoints * ComboMultiplier(chainStep) * gateProduct * (1f + historyBonus));
+            float kindMultiplier = kind == FloorKind.Bonus ? BonusFloorMultiplier : 1f;
+            return Mathf.RoundToInt(BasePoints * ComboMultiplier(chainStep) * gateProduct * kindMultiplier * (1f + historyBonus));
         }
 
         /// <summary>
@@ -93,7 +91,7 @@ namespace OneTapDemolition
                 {
                     gateProduct *= f.GateValue;
                 }
-                score += FloorPoints(step, gateProduct, historyBonus);
+                score += FloorPoints(step, gateProduct, historyBonus, f.Kind);
             }
             return true;
         }

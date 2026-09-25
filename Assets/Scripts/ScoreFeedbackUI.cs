@@ -15,12 +15,22 @@ namespace OneTapDemolition
     {
         public static ScoreFeedbackUI Instance { get; private set; }
 
-        [SerializeField] private float popupDuration = 0.7f;
-        [SerializeField] private float popupRiseDistance = 80f;
         [SerializeField] private float bannerHoldDuration = 0.6f;
         [SerializeField] private float flashDuration = 0.18f;
         [SerializeField] private float historyToastHoldDuration = 2.0f;
 
+        [Header("Score Popup Flow")]
+        [SerializeField] private float popupPopDuration = 0.18f;
+        [SerializeField] private float popupHoldDuration = 0.2f;
+        [SerializeField] private float popupFlyDuration = 0.42f;
+        [SerializeField] private float popupRisePixels = 70f;
+        [SerializeField] private float popupFanPixels = 120f;
+
+        private ScoreUI scoreUI;
+        private int arrivalStep;
+        private int popupIndex;
+        private float lastPopupTime = -10f;
+        private float lastArrivalTime = -10f;
         private Canvas targetCanvas;
         private Camera mainCamera;
         private Text bannerText;
@@ -217,6 +227,10 @@ namespace OneTapDemolition
             historyToastRoot.SetActive(false);
         }
 
+        /// <summary>
+        /// 壊した階から「+N」が飛び出し(ポップ)→少し見せる→スコア表示へ飛ぶ→着いた瞬間にスコアとゲージが増える。
+        /// 「この階を壊した結果、N点入った」が目で追える速度にする。
+        /// </summary>
         private void OnScorePopup(Vector3 worldPosition, int amount)
         {
             if (targetCanvas == null || mainCamera == null)
@@ -224,74 +238,118 @@ namespace OneTapDemolition
                 return;
             }
 
+            int generation = ScoreManager.Instance != null ? ScoreManager.Instance.Generation : 0;
+            Vector3 startScreen = mainCamera.WorldToScreenPoint(worldPosition);
+
+            // 連鎖中のポップが同じ場所で重なって読めなくならないよう、左右に振り分ける
+            if (Time.unscaledTime - lastPopupTime > 0.7f)
+            {
+                popupIndex = 0;
+            }
+            lastPopupTime = Time.unscaledTime;
+            float side = popupIndex % 2 == 0 ? -1f : 1f;
+            startScreen += new Vector3(side * popupFanPixels, 0f, 0f);
+            popupIndex++;
+
             GameObject go = new GameObject("ScorePopup", typeof(RectTransform), typeof(Text), typeof(Outline));
             go.transform.SetParent(targetCanvas.transform, false);
 
             RectTransform rect = go.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(260, 90);
-            rect.anchoredPosition = WorldToCanvasPosition(worldPosition);
+            rect.sizeDelta = new Vector2(360, 130);
+            rect.position = startScreen;
 
             Text text = go.GetComponent<Text>();
             text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             text.alignment = TextAnchor.MiddleCenter;
             text.fontStyle = FontStyle.Bold;
             text.text = "+" + amount;
+            text.raycastTarget = false;
 
-            // 加算量が多いほど大きく、より熱い色にして「効いてる感」を出す
-            float t = Mathf.InverseLerp(10f, 60f, amount);
-            text.fontSize = Mathf.RoundToInt(Mathf.Lerp(36f, 64f, t));
-            text.color = Color.Lerp(Color.white, new Color(1f, 0.5f, 0.1f, 1f), t);
+            // 得点が大きいほど大きく熱い色にして「効いてる感」を出す
+            float t = Mathf.InverseLerp(100f, 700f, amount);
+            text.fontSize = Mathf.RoundToInt(Mathf.Lerp(56f, 96f, t));
+            text.color = Color.Lerp(Color.white, new Color(1f, 0.6f, 0.1f, 1f), t);
 
             Outline outline = go.GetComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
-            outline.effectDistance = new Vector2(2, -2);
+            outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
+            outline.effectDistance = new Vector2(3, -3);
 
-            StartCoroutine(AnimatePopup(rect, text));
+            StartCoroutine(PopupRoutine(rect, text, startScreen, amount, generation));
         }
 
-        private Vector2 WorldToCanvasPosition(Vector3 worldPosition)
+        private Vector3 ScoreTargetScreenPosition()
         {
-            Vector3 screenPoint = mainCamera.WorldToScreenPoint(worldPosition);
-            RectTransform canvasRect = targetCanvas.transform as RectTransform;
-            Camera eventCamera = targetCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : mainCamera;
-
-            Vector2 localPoint;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screenPoint, eventCamera, out localPoint);
-            return localPoint;
+            if (scoreUI == null)
+            {
+                scoreUI = FindFirstObjectByType<ScoreUI>();
+            }
+            if (scoreUI != null && scoreUI.ScoreTextRect != null)
+            {
+                return scoreUI.ScoreTextRect.position;
+            }
+            return new Vector3(Screen.width * 0.5f, Screen.height * 0.92f, 0f);
         }
 
-        private IEnumerator AnimatePopup(RectTransform rect, Text text)
+        private IEnumerator PopupRoutine(RectTransform rect, Text text, Vector3 start, int amount, int generation)
         {
+            // 1) ポップ: 壊れた階の位置に「+N」が弾んで出る
             float elapsed = 0f;
-            Vector2 startPos = rect.anchoredPosition;
-            Vector2 endPos = startPos + new Vector2(0f, popupRiseDistance);
-            Color startColor = text.color;
-
-            while (elapsed < popupDuration)
+            while (elapsed < popupPopDuration && rect != null)
             {
                 elapsed += Time.unscaledDeltaTime;
-                float t = Mathf.Clamp01(elapsed / popupDuration);
-                rect.anchoredPosition = Vector2.Lerp(startPos, endPos, t);
-                text.color = new Color(startColor.r, startColor.g, startColor.b, Mathf.Lerp(1f, 0f, t));
+                float t = Mathf.Clamp01(elapsed / popupPopDuration);
+                rect.localScale = Vector3.one * Mathf.Lerp(0.3f, 1f, EaseOutBack(t));
+                rect.position = start + new Vector3(0f, popupRisePixels * t, 0f);
+                yield return null;
+            }
+            if (rect == null)
+            {
+                yield break;
+            }
+
+            // 2) 少し見せる: 何点入ったかを読む時間
+            Vector3 hold = start + new Vector3(0f, popupRisePixels, 0f);
+            yield return new WaitForSecondsRealtime(popupHoldDuration);
+            if (rect == null)
+            {
+                yield break;
+            }
+
+            // 3) スコア表示へ飛ぶ
+            Vector3 target = ScoreTargetScreenPosition();
+            elapsed = 0f;
+            while (elapsed < popupFlyDuration && rect != null)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / popupFlyDuration);
+                float e = t * t;
+                rect.position = Vector3.Lerp(hold, target, e);
+                rect.localScale = Vector3.one * Mathf.Lerp(1f, 0.5f, e);
                 yield return null;
             }
 
+            // 4) 着いた: スコア・ゲージが増える
             if (rect != null)
             {
                 Destroy(rect.gameObject);
             }
+            ScoreManager.Instance?.CommitDisplay(generation, amount);
+
+            if (Time.unscaledTime - lastArrivalTime > 0.45f)
+            {
+                arrivalStep = 0;
+            }
+            else
+            {
+                arrivalStep++;
+            }
+            lastArrivalTime = Time.unscaledTime;
+            JuiceManager.Instance?.PlayScoreTick(arrivalStep);
         }
 
         private void OnChainImpact(int totalChainCount)
         {
             PlayFlash(totalChainCount);
-
-            if (totalChainCount < 2 || bannerText == null)
-            {
-                return;
-            }
-
-            PlayBanner(totalChainCount + " CHAIN!", ComboColor);
         }
 
         /// <summary>
@@ -426,6 +484,17 @@ namespace OneTapDemolition
             }
 
             PlayBanner("NG!", BadGateColor);
+        }
+
+        /// <summary>
+        /// 画面中央の大きなバナー(MAX!/CLEAR等)。
+        /// </summary>
+        public void ShowBanner(string text, Color color)
+        {
+            if (bannerText != null)
+            {
+                PlayBanner(text, color);
+            }
         }
 
         private void PlayBanner(string text, Color color)
