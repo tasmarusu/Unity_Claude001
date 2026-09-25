@@ -6,13 +6,12 @@ namespace OneTapDemolition
     {
         Normal,
         Gate,
-        Protected,
         Bonus
     }
 
     /// <summary>
-    /// 1階分の種類。Gateは連鎖でその階以降に掛かる倍率(×2/×3/×0.5)、Protectedは崩すとステージ失敗、
-    /// Bonusは得点が大きく、壊すと☆が1つ出る特別な階(金色に脈動する)。
+    /// 1階分の種類。Gateは連鎖でその階以降に掛かる倍率(×2/×3/÷2)、
+    /// Bonusは得点が2倍で、壊すと☆が1つ出る特別な階(金色に脈動する)。
     /// </summary>
     public struct FloorSpec
     {
@@ -21,7 +20,6 @@ namespace OneTapDemolition
 
         public static FloorSpec Normal => new FloorSpec { Kind = FloorKind.Normal, GateValue = 1f };
         public static FloorSpec Gate(float value) => new FloorSpec { Kind = FloorKind.Gate, GateValue = value };
-        public static FloorSpec Protect => new FloorSpec { Kind = FloorKind.Protected, GateValue = 1f };
         public static FloorSpec Bonus => new FloorSpec { Kind = FloorKind.Bonus, GateValue = 1f };
     }
 
@@ -34,7 +32,7 @@ namespace OneTapDemolition
 
     /// <summary>
     /// 1ステージ分の定義。ステージ番号から決定的に生成されるので、リトライしても同じ配置になる。
-    /// TargetScoreに達するとゲージMAX=クリア。StarScoreまで伸ばすと3つ目の☆が出る(ゲージ上の☆マーク)。
+    /// TargetScoreに達するとゲージMAX=クリア。StarScoreまで伸ばすと3つ目の☆が出る(ゲージ右端の☆マーク)。
     /// </summary>
     public class StageSpec
     {
@@ -72,28 +70,23 @@ namespace OneTapDemolition
 
         /// <summary>
         /// 生きている階が[0, limit)の連続区間のとき、tapIndexをタップした場合の合計スコアを返す。
-        /// 保護階を巻き込む場合はfalse。
         /// </summary>
-        public static bool SimulateTap(FloorSpec[] floors, int tapIndex, int limit, float historyBonus, out int score)
+        public static int SimulateTap(FloorSpec[] floors, int tapIndex, int limit, float historyBonus)
         {
-            score = 0;
+            int score = 0;
             float gateProduct = 1f;
             int step = 0;
             for (int i = tapIndex; i < limit; i++)
             {
                 step++;
                 FloorSpec f = floors[i];
-                if (f.Kind == FloorKind.Protected)
-                {
-                    return false;
-                }
                 if (f.Kind == FloorKind.Gate)
                 {
                     gateProduct *= f.GateValue;
                 }
                 score += FloorPoints(step, gateProduct, historyBonus, f.Kind);
             }
-            return true;
+            return score;
         }
 
         /// <summary>
@@ -110,13 +103,8 @@ namespace OneTapDemolition
             int best = 0;
             for (int j = 0; j < limit; j++)
             {
-                int gain;
-                if (!SimulateTap(floors, j, limit, historyBonus, out gain))
-                {
-                    continue;
-                }
                 int ignored;
-                int total = gain + BestScore(floors, j, shots - 1, historyBonus, out ignored);
+                int total = SimulateTap(floors, j, limit, historyBonus) + BestScore(floors, j, shots - 1, historyBonus, out ignored);
                 if (total > best)
                 {
                     best = total;
@@ -127,18 +115,18 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// 生きている区間[0, limit)の中に、保護階を巻き込まずにタップできる階が残っているか。
+        /// tapIndexをタップして巻き込まれる階(tapIndex以上limit未満)にボーナス階が含まれるか。
         /// </summary>
-        public static bool HasSafeTap(FloorSpec[] floors, int limit)
+        public static bool ChainIncludesBonus(FloorSpec[] floors, int tapIndex, int limit)
         {
-            for (int i = limit - 1; i >= 0; i--)
+            for (int i = tapIndex; i < limit; i++)
             {
-                if (floors[i].Kind == FloorKind.Protected)
+                if (floors[i].Kind == FloorKind.Bonus)
                 {
-                    return i < limit - 1;
+                    return true;
                 }
             }
-            return limit > 0;
+            return false;
         }
     }
 }

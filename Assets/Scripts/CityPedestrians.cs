@@ -4,9 +4,11 @@ using UnityEngine;
 namespace OneTapDemolition
 {
     /// <summary>
-    /// 奥の道路の路肩を歩き、横断歩道で道路を渡っていく歩行者。
-    /// 主役(手前のタワー)の前には出さず、奥の路肩と横断歩道だけを使う。人数は上限つきのプールで使い回す。
-    /// 経路の両端ではスケールを絞って出入りを目立たなくする。
+    /// 街を歩く歩行者。複数の「流れ」を同じプールから出す。
+    ///  - 奥の路肩: 路肩を歩いて横断歩道で道路を渡る
+    ///  - 手前の広場: タワーの手前を左右に横切る(ゆっくり)
+    ///  - 手前の横断歩道: 手前の道路を渡ってカメラ側へ歩いてくる/広場へ戻っていく
+    /// 人にはColliderが無く、タップ判定や崩落に影響しない。経路の両端ではスケールを絞って出入りを目立たなくする。
     /// </summary>
     public class CityPedestrians : MonoBehaviour
     {
@@ -22,25 +24,31 @@ namespace OneTapDemolition
             public float BaseHeightScale = 1f;
         }
 
-        private const int MaxActive = 8;
-        private const int PoolPerType = 2;
+        private class Group
+        {
+            public readonly List<PolylinePath> Paths = new List<PolylinePath>();
+            public readonly List<Walker> Active = new List<Walker>();
+            public int MaxActive;
+            public float SpeedMin;
+            public float SpeedMax;
+            public float IntervalMin;
+            public float IntervalMax;
+            public float LateralRange;
+            public float NextSpawn;
+        }
+
+        private const int PoolPerType = 4;
         private const float ShoulderInset = 1.7f;
         private const float WalkDepth = 82f;
         private const float EdgeFade = 3f;
-        private const float MinSpawnInterval = 3f;
-        private const float MaxSpawnInterval = 9f;
-        private const float StartClearance = 4f;
+        private const float StartClearance = 3f;
 
-        private readonly List<Walker> active = new List<Walker>();
         private readonly List<Walker> pool = new List<Walker>();
-        private readonly List<PolylinePath> paths = new List<PolylinePath>();
+        private readonly List<Group> groups = new List<Group>();
         private System.Random rng;
-        private CityLife.RoadInfo road;
-        private float nextSpawnTime;
 
-        public void Init(CityLife.RoadInfo roadInfo, System.Random random)
+        public void Init(CityLife.RoadInfo road, CityLife.FrontInfo front, System.Random random)
         {
-            road = roadInfo;
             rng = random;
 
             GameObject[] prefabs = CityLife.LoadPrefabs("People");
@@ -51,9 +59,25 @@ namespace OneTapDemolition
             }
 
             BuildPool(prefabs);
-            BuildPaths();
-            PopulateInitialWalkers();
-            nextSpawnTime = Time.time + Range(MinSpawnInterval, MaxSpawnInterval);
+
+            Group deep = BuildDeepGroup(road);
+            groups.Add(deep);
+            PopulateInitial(deep, deep.MaxActive / 2);
+
+            if (front.Valid)
+            {
+                Group plaza = BuildPlazaGroup(front);
+                Group crosswalk = BuildFrontCrosswalkGroup(front);
+                groups.Add(plaza);
+                groups.Add(crosswalk);
+                PopulateInitial(plaza, 1);
+                PopulateInitial(crosswalk, 1);
+            }
+
+            foreach (Group g in groups)
+            {
+                g.NextSpawn = Time.time + Range(g.IntervalMin, g.IntervalMax) * 0.5f;
+            }
         }
 
         private void BuildPool(GameObject[] prefabs)
@@ -80,8 +104,9 @@ namespace OneTapDemolition
         /// <summary>
         /// 左右の路肩どちらかから来て、横断歩道で反対側へ渡り、その路肩を奥へ戻る経路(左右対称の2本)。
         /// </summary>
-        private void BuildPaths()
+        private Group BuildDeepGroup(CityLife.RoadInfo road)
         {
+            Group g = new Group { MaxActive = 8, SpeedMin = 0.65f, SpeedMax = 0.95f, IntervalMin = 3f, IntervalMax = 9f, LateralRange = 0.35f };
             float y = road.SurfaceY;
             float zFar = Mathf.Min(road.ZEnd - 10f, road.ZStart + WalkDepth);
             float zCross = road.CrosswalkZ;
@@ -91,7 +116,7 @@ namespace OneTapDemolition
             {
                 float a = road.CenterX + side * x;
                 float b = road.CenterX - side * x;
-                paths.Add(new PolylinePath(new[]
+                g.Paths.Add(new PolylinePath(new[]
                 {
                     new Vector3(a, y, zFar),
                     new Vector3(a, y, zCross),
@@ -99,62 +124,106 @@ namespace OneTapDemolition
                     new Vector3(b, y, zFar)
                 }));
             }
+            return g;
         }
 
-        private void PopulateInitialWalkers()
+        /// <summary>
+        /// タワーの手前(道路との間の広場)を左右に横切る。
+        /// </summary>
+        private Group BuildPlazaGroup(CityLife.FrontInfo front)
         {
-            for (int i = 0; i < MaxActive / 2; i++)
+            Group g = new Group { MaxActive = 3, SpeedMin = 0.6f, SpeedMax = 0.9f, IntervalMin = 5f, IntervalMax = 11f, LateralRange = 0.25f };
+            float z = front.PlazaZ;
+            float y = front.GroundY;
+            float half = front.PlazaHalfWidth;
+            g.Paths.Add(new PolylinePath(new[] { new Vector3(-half, y, z), new Vector3(half, y, z) }));
+            g.Paths.Add(new PolylinePath(new[] { new Vector3(half, y, z), new Vector3(-half, y, z) }));
+            return g;
+        }
+
+        /// <summary>
+        /// 手前の横断歩道を、広場からカメラ側へ渡ってくる/戻っていく2本。
+        /// </summary>
+        private Group BuildFrontCrosswalkGroup(CityLife.FrontInfo front)
+        {
+            Group g = new Group { MaxActive = 2, SpeedMin = 0.75f, SpeedMax = 1f, IntervalMin = 7f, IntervalMax = 14f, LateralRange = 0.2f };
+            float zStart = front.PlazaZ - 0.6f;
+            float zEnd = front.RoadCenterZ - 1.5f;
+            float yRoad = front.RoadSurfaceY;
+            float xa = front.CrosswalkX - 1.4f;
+            float xb = front.CrosswalkX + 1.4f;
+
+            g.Paths.Add(new PolylinePath(new[]
+            {
+                new Vector3(xa, front.GroundY, zStart),
+                new Vector3(xa, yRoad, zStart - 1.5f),
+                new Vector3(xa, yRoad, zEnd)
+            }));
+            g.Paths.Add(new PolylinePath(new[]
+            {
+                new Vector3(xb, yRoad, zEnd),
+                new Vector3(xb, yRoad, zStart - 1.5f),
+                new Vector3(xb, front.GroundY, zStart)
+            }));
+            return g;
+        }
+
+        private void PopulateInitial(Group g, int count)
+        {
+            for (int i = 0; i < count; i++)
             {
                 Walker w = TakeFromPool();
                 if (w == null)
                 {
                     break;
                 }
-                PolylinePath path = paths[rng.Next(paths.Count)];
-                Activate(w, path, path.Length * Range(0.05f, 0.9f));
+                PolylinePath path = g.Paths[rng.Next(g.Paths.Count)];
+                Activate(g, w, path, path.Length * Range(0.05f, 0.9f));
             }
         }
 
         private void Update()
         {
-            if (paths.Count == 0)
-            {
-                return;
-            }
-
             float dt = Time.deltaTime;
-            TrySpawn();
-
-            for (int i = active.Count - 1; i >= 0; i--)
+            foreach (Group g in groups)
             {
-                Walker w = active[i];
+                TrySpawn(g);
+                Advance(g, dt);
+            }
+        }
+
+        private void Advance(Group g, float dt)
+        {
+            for (int i = g.Active.Count - 1; i >= 0; i--)
+            {
+                Walker w = g.Active[i];
                 w.S += w.Speed * dt;
                 w.Phase += w.Speed * dt * 9f;
                 if (w.S >= w.Path.Length)
                 {
                     w.Object.SetActive(false);
                     pool.Add(w);
-                    active.RemoveAt(i);
+                    g.Active.RemoveAt(i);
                     continue;
                 }
                 Place(w, dt);
             }
         }
 
-        private void TrySpawn()
+        private void TrySpawn(Group g)
         {
-            if (Time.time < nextSpawnTime || active.Count >= MaxActive)
+            if (Time.time < g.NextSpawn || g.Active.Count >= g.MaxActive)
             {
                 return;
             }
 
-            PolylinePath path = paths[rng.Next(paths.Count)];
-            foreach (Walker w in active)
+            PolylinePath path = g.Paths[rng.Next(g.Paths.Count)];
+            foreach (Walker w in g.Active)
             {
                 // 出口(経路の始点)付近が混み合っているなら今回は見送る
                 if (w.Path == path && w.S < StartClearance)
                 {
-                    nextSpawnTime = Time.time + 1f;
+                    g.NextSpawn = Time.time + 1f;
                     return;
                 }
             }
@@ -164,8 +233,8 @@ namespace OneTapDemolition
             {
                 return;
             }
-            Activate(walker, path, 0f);
-            nextSpawnTime = Time.time + Range(MinSpawnInterval, MaxSpawnInterval);
+            Activate(g, walker, path, 0f);
+            g.NextSpawn = Time.time + Range(g.IntervalMin, g.IntervalMax);
         }
 
         private Walker TakeFromPool()
@@ -180,15 +249,15 @@ namespace OneTapDemolition
             return w;
         }
 
-        private void Activate(Walker w, PolylinePath path, float s)
+        private void Activate(Group g, Walker w, PolylinePath path, float s)
         {
             w.Path = path;
             w.S = s;
-            w.Speed = Range(0.65f, 0.95f);
+            w.Speed = Range(g.SpeedMin, g.SpeedMax);
             w.Phase = Range(0f, 6.28f);
-            w.LateralOffset = Range(-0.35f, 0.35f);
+            w.LateralOffset = Range(-g.LateralRange, g.LateralRange);
             w.Object.SetActive(true);
-            active.Add(w);
+            g.Active.Add(w);
             Place(w, 1f);
         }
 

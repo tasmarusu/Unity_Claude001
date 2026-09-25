@@ -26,7 +26,6 @@ namespace OneTapDemolition
         private static readonly Color PipOn = new Color(1f, 0.9f, 0.3f, 1f);
         private static readonly Color PipOff = new Color(0.25f, 0.25f, 0.28f, 0.9f);
         private static readonly Color GoodColor = new Color(0.6f, 1f, 0.55f, 1f);
-        private static readonly Color BadColor = new Color(1f, 0.4f, 0.4f, 1f);
 
         private RectTransform canvasRect;
         private RectTransform safeRoot;
@@ -49,6 +48,8 @@ namespace OneTapDemolition
         private Image comboStar;
         private Text aimText;
         private RectTransform aimRect;
+        private readonly Image[] aimStars = new Image[3];
+        private int pulseSlotCount;
 
         private StageSpec spec;
         private float shownScore;
@@ -150,6 +151,16 @@ namespace OneTapDemolition
             aimRect = aimText.rectTransform;
             aimRect.sizeDelta = new Vector2(620f, 120f);
             aimText.gameObject.SetActive(false);
+
+            // 狙っている階で取れる☆を、指の上のラベルの下に☆アイコンで予告する
+            for (int i = 0; i < aimStars.Length; i++)
+            {
+                Image star = UiKit.Panel(aimRect, "AimStar" + i, StarOn, false);
+                star.sprite = UiSprites.Star;
+                UiKit.SetAnchored(star.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2((i - 1) * 84f, -4f), new Vector2(76f, 76f));
+                star.gameObject.SetActive(false);
+                aimStars[i] = star;
+            }
         }
 
         private void BuildGauge(RectTransform panel)
@@ -238,6 +249,7 @@ namespace OneTapDemolition
             // リザルトが前面に出るので、ゲージ/コンボ等のHUDは畳んで重なりを避ける
             hudPanel.gameObject.SetActive(false);
             aimText.gameObject.SetActive(false);
+            pulseSlotCount = 0;
         }
 
         private void OnStageStarted(StageSpec newSpec, int shots)
@@ -273,6 +285,7 @@ namespace OneTapDemolition
             ghost.sizeDelta = new Vector2(0f, -BarInset * 2f);
             fill.sizeDelta = new Vector2(0f, -BarInset * 2f);
             aimText.gameObject.SetActive(false);
+            pulseSlotCount = 0;
             UpdateGaugeLabel();
             RebuildPips(shots);
         }
@@ -351,6 +364,27 @@ namespace OneTapDemolition
             Color wantColor = reachedMax ? FillMax : FillNormal;
             fillImage.color = Color.Lerp(fillImage.color, wantColor, Mathf.Clamp01(Time.unscaledDeltaTime * 10f));
             UpdateGaugeLabel();
+
+            // 今の狙いで取れる☆の数だけ、☆カウンターの次の空きスロットを脈動させて「ここに入る」と示す
+            for (int i = 0; i < slots.Length; i++)
+            {
+                bool wouldFill = i >= starsAssigned && i < starsAssigned + pulseSlotCount;
+                if (slots[i].color == StarOn)
+                {
+                    continue;
+                }
+                if (wouldFill)
+                {
+                    float p = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 12f);
+                    slots[i].color = Color.Lerp(StarOff, StarOn, 0.35f + 0.5f * p);
+                    slots[i].rectTransform.localScale = Vector3.one * (1f + 0.25f * p);
+                }
+                else
+                {
+                    slots[i].color = StarOff;
+                    slots[i].rectTransform.localScale = Vector3.one;
+                }
+            }
 
             // 連鎖があと1で☆のとき、☆アイコンを脈動させて予兆を出す
             if (comboStep == ScoreRules.ComboStarStep - 1 && comboStar.color == StarOff)
@@ -501,20 +535,35 @@ namespace OneTapDemolition
 
         // ---------------- Aim ----------------
 
-        private void OnAimChanged(bool aiming, Vector2 screenPosition, int predicted, bool danger, bool valid)
+        private void OnAimChanged(bool aiming, Vector2 screenPosition, int tapIndex, int predicted)
         {
-            if (!aiming || !valid || spec == null)
+            GameManager gm = GameManager.Instance;
+            if (!aiming || tapIndex < 0 || spec == null || gm == null || gm.CurrentTower == null)
             {
                 aimText.gameObject.SetActive(false);
                 ghostNormalized = 0f;
+                pulseSlotCount = 0;
                 return;
             }
 
-            bool reachesMax = !danger && displayedScore + predicted >= spec.TargetScore;
+            bool reachesMax = displayedScore + predicted >= spec.TargetScore;
+            int alive = gm.CurrentTower.AliveCount;
+
+            // この一撃で取れる☆(まだ取っていない条件だけ)
+            bool bonus = !gm.HasStar(StarReason.BonusFloor) && ScoreRules.ChainIncludesBonus(spec.Floors, tapIndex, alive);
+            bool combo = !gm.HasStar(StarReason.Combo) && alive - tapIndex >= ScoreRules.ComboStarStep;
+            bool overshoot = !gm.HasStar(StarReason.Overshoot) && displayedScore + predicted >= spec.StarScore;
+            int starCount = (bonus ? 1 : 0) + (combo ? 1 : 0) + (overshoot ? 1 : 0);
+            pulseSlotCount = starCount;
+
             aimText.gameObject.SetActive(true);
-            aimText.text = danger ? "NG!" : "+" + predicted + (reachesMax ? "  MAX!" : "");
-            aimText.color = danger ? BadColor : (reachesMax ? FillMax : GoodColor);
-            ghostNormalized = danger ? 0f : Mathf.Clamp01((displayedScore + predicted) / (float)spec.StarScore);
+            aimText.text = "+" + predicted + (reachesMax ? "  MAX!" : "");
+            aimText.color = reachesMax ? FillMax : GoodColor;
+            for (int i = 0; i < aimStars.Length; i++)
+            {
+                aimStars[i].gameObject.SetActive(i < starCount);
+            }
+            ghostNormalized = Mathf.Clamp01((displayedScore + predicted) / (float)spec.StarScore);
 
             Vector2 local;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screenPosition + new Vector2(0f, Screen.height * 0.12f), null, out local);

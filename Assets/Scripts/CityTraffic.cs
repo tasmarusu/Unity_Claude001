@@ -4,9 +4,11 @@ using UnityEngine;
 namespace OneTapDemolition
 {
     /// <summary>
-    /// 奥の道路を走る車。左側通行で、遠くから手前へ来て、横断歩道の手前でUターンして奥へ戻っていく周回ルート。
+    /// 街を走る車。次の2つの流れがある(どちらも同じプールを使い回す)。
+    ///  - 奥の道路: 左側通行で、遠くから手前へ来て、横断歩道の手前でUターンして奥へ戻る周回ルート
+    ///  - 手前の道路: 画面下を横切る手前の道路を、ゆっくり左から右へ通り過ぎる
     /// 車種・車体色・速度はバラバラ、前の車との車間を保つ(追い越し・重なりなし)。
-    /// 車の数は上限つきのプールで使い回し、メインの建物崩壊より目立たない小ささ/速度にする。
+    /// 車にはColliderが無く、タップ判定や崩落に一切影響しない。
     /// </summary>
     public class CityTraffic : MonoBehaviour
     {
@@ -22,6 +24,18 @@ namespace OneTapDemolition
             public bool IsTaxi;
         }
 
+        private class Flow
+        {
+            public PolylinePath Path;
+            public readonly List<Car> Active = new List<Car>();
+            public int MaxActive;
+            public float SpeedMin;
+            public float SpeedMax;
+            public float IntervalMin;
+            public float IntervalMax;
+            public float NextSpawn;
+        }
+
         private static readonly int ColorId = Shader.PropertyToID("_Color");
 
         private static readonly Color[] BodyColors =
@@ -30,26 +44,19 @@ namespace OneTapDemolition
             new Color(0.35f, 0.78f, 0.5f), new Color(0.82f, 0.84f, 0.9f), new Color(0.95f, 0.65f, 0.2f)
         };
 
-        private const int MaxActiveCars = 7;
-        private const int PoolPerType = 2;
+        private const int PoolPerType = 3;
         private const float LaneOffset = 3.2f;
-        private const float TurnSegments = 16;
+        private const int TurnSegments = 16;
         private const float MinGap = 5f;
         private const float Acceleration = 2.5f;
-        private const float MinSpawnInterval = 2.5f;
-        private const float MaxSpawnInterval = 7f;
 
-        private readonly List<Car> active = new List<Car>();
         private readonly List<Car> pool = new List<Car>();
-        private PolylinePath path;
-        private CityLife.RoadInfo road;
+        private readonly List<Flow> flows = new List<Flow>();
         private System.Random rng;
         private MaterialPropertyBlock block;
-        private float nextSpawnTime;
 
-        public void Init(CityLife.RoadInfo roadInfo, System.Random random)
+        public void Init(CityLife.RoadInfo road, CityLife.FrontInfo front, System.Random random)
         {
-            road = roadInfo;
             rng = random;
             block = new MaterialPropertyBlock();
 
@@ -61,9 +68,38 @@ namespace OneTapDemolition
             }
 
             BuildPool(prefabs);
-            path = BuildPath();
-            PopulateInitialCars();
-            nextSpawnTime = Time.time + Range(MinSpawnInterval, MaxSpawnInterval);
+
+            Flow deep = new Flow
+            {
+                Path = BuildDeepPath(road),
+                MaxActive = 5,
+                SpeedMin = 2.6f,
+                SpeedMax = 4.4f,
+                IntervalMin = 2.5f,
+                IntervalMax = 7f
+            };
+            flows.Add(deep);
+            PopulateInitialCars(deep);
+
+            if (front.Valid)
+            {
+                Flow near = new Flow
+                {
+                    Path = BuildFrontPath(front),
+                    MaxActive = 3,
+                    SpeedMin = 2f,
+                    SpeedMax = 3.2f,
+                    IntervalMin = 2.5f,
+                    IntervalMax = 5.5f
+                };
+                flows.Add(near);
+                near.NextSpawn = Time.time + 0.5f;
+            }
+
+            foreach (Flow f in flows)
+            {
+                f.NextSpawn = Mathf.Max(f.NextSpawn, Time.time + Range(f.IntervalMin, f.IntervalMax));
+            }
         }
 
         private void BuildPool(GameObject[] prefabs)
@@ -100,7 +136,7 @@ namespace OneTapDemolition
             }
         }
 
-        private PolylinePath BuildPath()
+        private PolylinePath BuildDeepPath(CityLife.RoadInfo road)
         {
             float zFar = road.ZEnd - 2f;
             float zTurn = road.CrosswalkZ + 8f;
@@ -122,37 +158,54 @@ namespace OneTapDemolition
         }
 
         /// <summary>
+        /// 手前の道路(画面の下側を横切る)の、タワー側の車線を+X方向へ走る(左側通行)。
+        /// </summary>
+        private PolylinePath BuildFrontPath(CityLife.FrontInfo front)
+        {
+            float z = front.RoadCenterZ + front.NearLaneOffset;
+            float xStart = Mathf.Max(front.RoadXMin, front.ViewCenterX - 26f);
+            float xEnd = Mathf.Min(front.RoadXMax, front.ViewCenterX + 34f);
+            return new PolylinePath(new[]
+            {
+                new Vector3(xStart, front.RoadSurfaceY, z),
+                new Vector3(xEnd, front.RoadSurfaceY, z)
+            });
+        }
+
+        /// <summary>
         /// 開始直後から道路が空にならないよう、間隔を空けて数台を先に走らせておく。
         /// </summary>
-        private void PopulateInitialCars()
+        private void PopulateInitialCars(Flow flow)
         {
-            float s = path.Length * Range(0.12f, 0.3f);
+            float s = flow.Path.Length * Range(0.12f, 0.3f);
             int count = 0;
-            while (count < MaxActiveCars - 2 && s < path.Length * 0.9f)
+            while (count < flow.MaxActive - 1 && s < flow.Path.Length * 0.9f)
             {
                 Car car = TakeFromPool();
                 if (car == null)
                 {
                     break;
                 }
-                Activate(car, s);
+                Activate(flow, car, s);
                 s += car.Length + Range(MinGap, 18f);
                 count++;
             }
-            // s昇順で追加したので、先頭(=最前)が最大になるよう並べ替える
-            active.Sort((a, b) => b.S.CompareTo(a.S));
+            flow.Active.Sort((a, b) => b.S.CompareTo(a.S));
         }
 
         private void Update()
         {
-            if (path == null)
-            {
-                return;
-            }
-
             float dt = Time.deltaTime;
-            TrySpawn();
+            foreach (Flow flow in flows)
+            {
+                TrySpawn(flow);
+                Advance(flow, dt);
+            }
+        }
 
+        private void Advance(Flow flow, float dt)
+        {
+            List<Car> active = flow.Active;
             for (int i = 0; i < active.Count; i++)
             {
                 Car car = active[i];
@@ -170,22 +223,23 @@ namespace OneTapDemolition
 
                 car.Speed = Mathf.MoveTowards(car.Speed, target, Acceleration * dt);
                 car.S += car.Speed * dt;
-                Place(car, dt);
+                Place(flow, car, dt);
             }
 
             for (int i = active.Count - 1; i >= 0; i--)
             {
-                if (active[i].S >= path.Length)
+                if (active[i].S >= flow.Path.Length)
                 {
-                    Release(active[i]);
+                    active[i].Object.SetActive(false);
+                    pool.Add(active[i]);
                     active.RemoveAt(i);
                 }
             }
         }
 
-        private void TrySpawn()
+        private void TrySpawn(Flow flow)
         {
-            if (Time.time < nextSpawnTime || active.Count >= MaxActiveCars)
+            if (Time.time < flow.NextSpawn || flow.Active.Count >= flow.MaxActive)
             {
                 return;
             }
@@ -197,9 +251,9 @@ namespace OneTapDemolition
             }
 
             // 直前に出した車との車間が十分あるときだけ出す
-            if (active.Count > 0)
+            if (flow.Active.Count > 0)
             {
-                Car last = active[active.Count - 1];
+                Car last = flow.Active[flow.Active.Count - 1];
                 float needed = (last.Length + candidate.Length) * 0.5f + MinGap;
                 if (last.S < needed)
                 {
@@ -208,8 +262,8 @@ namespace OneTapDemolition
                 }
             }
 
-            Activate(candidate, 0f);
-            nextSpawnTime = Time.time + Range(MinSpawnInterval, MaxSpawnInterval);
+            Activate(flow, candidate, 0f);
+            flow.NextSpawn = Time.time + Range(flow.IntervalMin, flow.IntervalMax);
         }
 
         private Car TakeFromPool()
@@ -224,10 +278,10 @@ namespace OneTapDemolition
             return car;
         }
 
-        private void Activate(Car car, float s)
+        private void Activate(Flow flow, Car car, float s)
         {
             car.S = s;
-            car.DesiredSpeed = Range(2.6f, 4.4f);
+            car.DesiredSpeed = Range(flow.SpeedMin, flow.SpeedMax);
             car.Speed = car.DesiredSpeed;
             if (car.Renderer != null && !car.IsTaxi)
             {
@@ -235,21 +289,15 @@ namespace OneTapDemolition
                 car.Renderer.SetPropertyBlock(block);
             }
             car.Object.SetActive(true);
-            active.Add(car);
-            Place(car, 1f);
+            flow.Active.Add(car);
+            Place(flow, car, 1f);
         }
 
-        private void Release(Car car)
-        {
-            car.Object.SetActive(false);
-            pool.Add(car);
-        }
-
-        private void Place(Car car, float dt)
+        private void Place(Flow flow, Car car, float dt)
         {
             Vector3 position;
             Vector3 forward;
-            path.Evaluate(car.S, out position, out forward);
+            flow.Path.Evaluate(car.S, out position, out forward);
             car.Transform.position = position;
             if (forward.sqrMagnitude > 0.0001f)
             {

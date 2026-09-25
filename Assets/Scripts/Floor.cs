@@ -22,7 +22,6 @@ namespace OneTapDemolition
         private static readonly Color GateX2Color = new Color(0.55f, 1f, 0.6f, 1f);
         private static readonly Color GateX3Color = new Color(1f, 0.85f, 0.25f, 1f);
         private static readonly Color GateBadColor = new Color(1f, 0.45f, 0.45f, 1f);
-        private static readonly Color ProtectedColor = new Color(0.5f, 0.78f, 1f, 1f);
         private static readonly Color BonusColor = new Color(1f, 0.82f, 0.2f, 1f);
 
         [Header("Physics")]
@@ -53,7 +52,6 @@ namespace OneTapDemolition
         private Color debrisTint = FallbackDebrisTint;
         private Color kindTint = Color.white;
         private AimState aimState = AimState.None;
-        private bool aimDanger;
         private bool cracking;
         private Vector3 restPosition;
 
@@ -138,10 +136,6 @@ namespace OneTapDemolition
                         label = "÷2";
                     }
                     break;
-                case FloorKind.Protected:
-                    kindTint = ProtectedColor;
-                    label = "KEEP";
-                    break;
                 case FloorKind.Bonus:
                     kindTint = BonusColor;
                     break;
@@ -158,16 +152,15 @@ namespace OneTapDemolition
                     : FloorBadge.Create(transform, label, kindTint, badgeDistance);
             }
 
-            SetAim(AimState.None, false);
+            SetAim(AimState.None);
         }
 
         /// <summary>
-        /// 狙っている間のハイライト。Targetはタップ位置、InChainは巻き込まれる階(保護階を含む場合は赤み)。
+        /// 狙っている間のハイライト。Targetはタップ位置、InChainは巻き込まれる階。
         /// </summary>
-        public void SetAim(AimState state, bool danger)
+        public void SetAim(AimState state)
         {
             aimState = state;
-            aimDanger = danger;
             ApplyTint(1f);
         }
 
@@ -229,7 +222,6 @@ namespace OneTapDemolition
             }
 
             AimState state = aimState;
-            bool danger = aimDanger;
             Color tint = kindTint;
             switch (state)
             {
@@ -237,9 +229,7 @@ namespace OneTapDemolition
                     tint = Color.Lerp(kindTint, new Color(1f, 0.95f, 0.5f, 1f), 0.6f);
                     break;
                 case AimState.InChain:
-                    tint = danger
-                        ? Color.Lerp(kindTint, new Color(1f, 0.3f, 0.3f, 1f), 0.4f)
-                        : Color.Lerp(kindTint, Color.white, 0.3f);
+                    tint = Color.Lerp(kindTint, Color.white, 0.3f);
                     break;
             }
 
@@ -262,7 +252,7 @@ namespace OneTapDemolition
             isDemolished = true;
             rb.isKinematic = false;
             cracking = false;
-            SetAim(AimState.None, false);
+            SetAim(AimState.None);
             if (badge != null)
             {
                 badge.Detach();

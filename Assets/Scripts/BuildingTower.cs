@@ -30,6 +30,7 @@ namespace OneTapDemolition
         public StageSpec Spec => spec;
         public int FloorCount => floors.Count;
         public int AliveCount => limit;
+        public IReadOnlyList<Floor> Floors => floors;
         public bool IsResolving => resolving;
 
         public float TotalHeight => floors.Count * floorHeight;
@@ -66,20 +67,18 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// 指定階をタップした場合の予測スコア。保護階を巻き込むならhitsProtected=true。
+        /// 指定階をタップした場合の予測スコア。
         /// </summary>
-        public bool PredictTap(int index, out int score, out bool hitsProtected)
+        public bool PredictTap(int index, out int score)
         {
             score = 0;
-            hitsProtected = false;
             if (spec == null || index < 0 || index >= limit)
             {
                 return false;
             }
 
             float historyBonus = ScoreManager.Instance != null ? ScoreManager.Instance.HistoryBonus : 0f;
-            bool safe = ScoreRules.SimulateTap(spec.Floors, index, limit, historyBonus, out score);
-            hitsProtected = !safe;
+            score = ScoreRules.SimulateTap(spec.Floors, index, limit, historyBonus);
             return true;
         }
 
@@ -88,13 +87,6 @@ namespace OneTapDemolition
         /// </summary>
         public void SetAimPreview(int index)
         {
-            bool danger = false;
-            if (index >= 0 && index < limit)
-            {
-                int ignored;
-                PredictTap(index, out ignored, out danger);
-            }
-
             for (int i = 0; i < floors.Count; i++)
             {
                 Floor floor = floors[i];
@@ -112,7 +104,7 @@ namespace OneTapDemolition
                 {
                     state = AimState.InChain;
                 }
-                floor.SetAim(state, danger);
+                floor.SetAim(state);
             }
         }
 
@@ -144,7 +136,6 @@ namespace OneTapDemolition
         {
             int chainStep = 0;
             float gateProduct = 1f;
-            bool protectedHit = false;
 
             for (int i = startIndex; i < limit; i++)
             {
@@ -167,12 +158,6 @@ namespace OneTapDemolition
                     ScoreFeedbackUI.Instance?.ShowGateBanner(spec.GateValue, gateProduct);
                     JuiceManager.Instance?.PlayGate(gateProduct);
                 }
-                else if (spec.Kind == FloorKind.Protected)
-                {
-                    protectedHit = true;
-                    ScoreFeedbackUI.Instance?.ShowFailBanner();
-                    JuiceManager.Instance?.PlayFail();
-                }
 
                 Vector3 floorPosition = floor.transform.position;
                 DemolishOne(floor, hitPoint, chainStep, gateProduct);
@@ -188,7 +173,7 @@ namespace OneTapDemolition
 
             limit = startIndex;
             resolving = false;
-            GameManager.Instance?.OnChainFinished(protectedHit);
+            GameManager.Instance?.OnChainFinished();
         }
 
         /// <summary>

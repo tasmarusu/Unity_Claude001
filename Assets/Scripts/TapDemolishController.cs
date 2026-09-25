@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 
@@ -8,6 +8,7 @@ namespace OneTapDemolition
     /// メインカメラにアタッチする。押している間は狙った階をハイライトして予測スコアを出し(AimChanged)、
     /// 指を離した瞬間にその階を崩す。タップ(素早く離す)でもそのまま撃てる。
     /// 階の上で押して階の外で離した場合はキャンセルされ、ショットは消費されない。
+    /// 触りやすさのため、ビルの見た目より広い範囲(左右・上下)を「ビルを押した」とみなし、最も近い階に吸着させる。
     /// </summary>
     public class TapDemolishController : MonoBehaviour
     {
@@ -15,7 +16,16 @@ namespace OneTapDemolition
         [SerializeField] private LayerMask floorLayerMask = ~0;
         [SerializeField] private float maxRayDistance = 200f;
 
+        [Header("Touch Forgiveness (画面に対する割合)")]
+        [Tooltip("ビルの左右にどれだけ余裕を持たせるか(画面幅比)。")]
+        [SerializeField] private float sideForgiveness = 0.14f;
+        [Tooltip("階と階の間や階の上下の隙間を拾う余裕(画面高比)。")]
+        [SerializeField] private float gapForgiveness = 0.02f;
+        [Tooltip("ビルの頭上・足元をどれだけ拾うか(画面高比)。上端より上は最上階、下端より下は最下階を狙う。")]
+        [SerializeField] private float edgeForgiveness = 0.09f;
+
         private static readonly RaycastHit[] HitBuffer = new RaycastHit[24];
+        private static readonly Vector3[] CornerBuffer = new Vector3[8];
 
         private bool pressing;
         private Floor aimFloor;
@@ -23,9 +33,9 @@ namespace OneTapDemolition
         private int aimFingerId = -1;
 
         /// <summary>
-        /// (狙い中か, 指の画面座標, 予測スコア, 保護階を巻き込むか, 狙える階があるか)
+        /// (狙い中か, 指の画面座標, 狙っている階の番号(無ければ-1), 予測スコア)
         /// </summary>
-        public event Action<bool, Vector2, int, bool, bool> AimChanged;
+        public event Action<bool, Vector2, int, int> AimChanged;
 
         private void Awake()
         {
@@ -70,7 +80,7 @@ namespace OneTapDemolition
 
             if (up)
             {
-                Fire(position);
+                Fire();
             }
             else if (!held)
             {
@@ -105,29 +115,9 @@ namespace OneTapDemolition
 
         private void UpdateAim(Vector2 screenPosition, GameManager gm)
         {
-            Floor hitFloor = null;
-            Vector3 hitPoint = default;
-            if (targetCamera != null)
-            {
-                Ray ray = targetCamera.ScreenPointToRay(screenPosition);
-                int count = Physics.RaycastNonAlloc(ray, HitBuffer, maxRayDistance, floorLayerMask);
-                float nearest = float.MaxValue;
-                for (int i = 0; i < count; i++)
-                {
-                    Floor f = HitBuffer[i].collider.GetComponentInParent<Floor>();
-                    if (f != null && !f.IsDemolished && f.OwnerTower == gm.CurrentTower && HitBuffer[i].distance < nearest)
-                    {
-                        nearest = HitBuffer[i].distance;
-                        hitFloor = f;
-                        hitPoint = HitBuffer[i].point;
-                    }
-                }
-            }
-
-            aimFloor = hitFloor;
-            aimHitPoint = hitPoint;
-
             BuildingTower tower = gm.CurrentTower;
+            aimFloor = tower != null ? PickFloor(screenPosition, tower, out aimHitPoint) : null;
+
             if (tower == null)
             {
                 return;
@@ -136,18 +126,171 @@ namespace OneTapDemolition
             if (aimFloor == null)
             {
                 tower.SetAimPreview(-1);
-                AimChanged?.Invoke(true, screenPosition, 0, false, false);
+                AimChanged?.Invoke(true, screenPosition, -1, 0);
                 return;
             }
 
             int score;
-            bool danger;
-            tower.PredictTap(aimFloor.FloorIndex, out score, out danger);
+            tower.PredictTap(aimFloor.FloorIndex, out score);
             tower.SetAimPreview(aimFloor.FloorIndex);
-            AimChanged?.Invoke(true, screenPosition, score, danger, true);
+            AimChanged?.Invoke(true, screenPosition, aimFloor.FloorIndex, score);
         }
 
-        private void Fire(Vector2 screenPosition)
+        /// <summary>
+        /// まず正確なレイキャストで階を探し、外れたら画面上でいちばん近い階に吸着する。
+        /// </summary>
+        private Floor PickFloor(Vector2 screenPosition, BuildingTower tower, out Vector3 hitPoint)
+        {
+            hitPoint = default;
+            if (targetCamera == null)
+            {
+                return null;
+            }
+
+            Ray ray = targetCamera.ScreenPointToRay(screenPosition);
+            int count = Physics.RaycastNonAlloc(ray, HitBuffer, maxRayDistance, floorLayerMask);
+            Floor exact = null;
+            float nearest = float.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                Floor f = HitBuffer[i].collider.GetComponentInParent<Floor>();
+                if (f != null && !f.IsDemolished && f.OwnerTower == tower && HitBuffer[i].distance < nearest)
+                {
+                    nearest = HitBuffer[i].distance;
+                    exact = f;
+                    hitPoint = HitBuffer[i].point;
+                }
+            }
+            if (exact != null)
+            {
+                return exact;
+            }
+
+            return SnapToNearestFloor(screenPosition, tower, out hitPoint);
+        }
+
+        private Floor SnapToNearestFloor(Vector2 screenPosition, BuildingTower tower, out Vector3 hitPoint)
+        {
+            hitPoint = default;
+            float tolSide = Screen.width * sideForgiveness;
+            float tolGap = Screen.height * gapForgiveness;
+            float tolEdge = Screen.height * edgeForgiveness;
+
+            Floor best = null;
+            float bestDistance = float.MaxValue;
+            Floor bottom = null;
+            Floor top = null;
+            float bottomY = float.MaxValue;
+            float topY = float.MinValue;
+            float minX = float.MaxValue;
+            float maxX = float.MinValue;
+
+            var floors = tower.Floors;
+            for (int i = 0; i < floors.Count && i < tower.AliveCount; i++)
+            {
+                Floor f = floors[i];
+                if (f == null || f.IsDemolished)
+                {
+                    continue;
+                }
+
+                Rect rect;
+                if (!ScreenRectOf(f, out rect))
+                {
+                    continue;
+                }
+
+                minX = Mathf.Min(minX, rect.xMin);
+                maxX = Mathf.Max(maxX, rect.xMax);
+                if (rect.yMin < bottomY)
+                {
+                    bottomY = rect.yMin;
+                    bottom = f;
+                }
+                if (rect.yMax > topY)
+                {
+                    topY = rect.yMax;
+                    top = f;
+                }
+
+                Rect grown = new Rect(rect.xMin - tolSide, rect.yMin - tolGap, rect.width + tolSide * 2f, rect.height + tolGap * 2f);
+                if (grown.Contains(screenPosition))
+                {
+                    float d = Mathf.Abs(screenPosition.y - rect.center.y);
+                    if (d < bestDistance)
+                    {
+                        bestDistance = d;
+                        best = f;
+                    }
+                }
+            }
+
+            if (best == null && bottom != null)
+            {
+                bool insideSide = screenPosition.x >= minX - tolSide && screenPosition.x <= maxX + tolSide;
+                if (insideSide && screenPosition.y < bottomY && screenPosition.y >= bottomY - tolEdge)
+                {
+                    best = bottom;
+                }
+                else if (insideSide && screenPosition.y > topY && screenPosition.y <= topY + tolEdge)
+                {
+                    best = top;
+                }
+            }
+
+            if (best != null)
+            {
+                Vector3 toCamera = (targetCamera.transform.position - best.transform.position).normalized;
+                hitPoint = best.transform.position + toCamera * 0.5f;
+            }
+            return best;
+        }
+
+        private bool ScreenRectOf(Floor floor, out Rect rect)
+        {
+            rect = default;
+            Renderer r = floor.GetComponent<Renderer>();
+            if (r == null)
+            {
+                return false;
+            }
+
+            Bounds b = r.bounds;
+            Vector3 c = b.center;
+            Vector3 e = b.extents;
+            int n = 0;
+            for (int x = -1; x <= 1; x += 2)
+            {
+                for (int y = -1; y <= 1; y += 2)
+                {
+                    for (int z = -1; z <= 1; z += 2)
+                    {
+                        CornerBuffer[n++] = c + new Vector3(e.x * x, e.y * y, e.z * z);
+                    }
+                }
+            }
+
+            float minX = float.MaxValue;
+            float minY = float.MaxValue;
+            float maxX = float.MinValue;
+            float maxY = float.MinValue;
+            foreach (Vector3 corner in CornerBuffer)
+            {
+                Vector3 p = targetCamera.WorldToScreenPoint(corner);
+                if (p.z <= 0f)
+                {
+                    return false;
+                }
+                minX = Mathf.Min(minX, p.x);
+                maxX = Mathf.Max(maxX, p.x);
+                minY = Mathf.Min(minY, p.y);
+                maxY = Mathf.Max(maxY, p.y);
+            }
+            rect = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            return true;
+        }
+
+        private void Fire()
         {
             Floor floor = aimFloor;
             Vector3 hitPoint = aimHitPoint;
@@ -173,7 +316,7 @@ namespace OneTapDemolition
             {
                 gm.CurrentTower.SetAimPreview(-1);
             }
-            AimChanged?.Invoke(false, Vector2.zero, 0, false, false);
+            AimChanged?.Invoke(false, Vector2.zero, -1, 0);
         }
     }
 }

@@ -11,18 +11,10 @@ namespace OneTapDemolition
         Result
     }
 
-    public enum FailReason
-    {
-        None,
-        ProtectedDestroyed,
-        OutOfShots
-    }
-
     public class StageResult
     {
         public StageSpec Spec;
         public bool Failed;
-        public FailReason FailReason;
         public int Score;
         public int Stars;
         public bool[] StarFlags;
@@ -53,7 +45,7 @@ namespace OneTapDemolition
         private int shotsUsed;
         private int totalShots;
         private bool gaugeMaxAnnounced;
-        private FailReason pendingFailReason;
+        private bool pendingFailed;
         private readonly bool[] starFlags = new bool[3];
 
         public event Action<StageSpec, int> StageStarted;
@@ -71,6 +63,11 @@ namespace OneTapDemolition
         public BuildingTower CurrentTower => currentTower;
 
         public bool CanShoot => State == GameState.Playing && ShotsLeft > 0;
+
+        public bool HasStar(StarReason reason)
+        {
+            return starFlags[(int)reason];
+        }
 
         public int StarCount
         {
@@ -149,7 +146,7 @@ namespace OneTapDemolition
 
             Array.Clear(starFlags, 0, starFlags.Length);
             gaugeMaxAnnounced = false;
-            pendingFailReason = FailReason.None;
+            pendingFailed = false;
             totalShots = CurrentSpec.Shots + extraShots;
             ShotsLeft = totalShots;
             shotsUsed = 0;
@@ -250,26 +247,20 @@ namespace OneTapDemolition
         /// <summary>
         /// BuildingTowerの連鎖崩落が終わったときに呼ばれる。クリア(ゲージMAX)・失敗・次のショットのどれかを決める。
         /// </summary>
-        public void OnChainFinished(bool protectedHit)
+        public void OnChainFinished()
         {
             ComboChanged?.Invoke(0);
 
             int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
-            bool towerDone = currentTower == null
-                || currentTower.AliveCount <= 0
-                || !ScoreRules.HasSafeTap(CurrentSpec.Floors, currentTower.AliveCount);
+            bool towerDone = currentTower == null || currentTower.AliveCount <= 0;
 
-            if (protectedHit)
+            if (score >= CurrentSpec.TargetScore)
             {
-                EndStage(FailReason.ProtectedDestroyed);
-            }
-            else if (score >= CurrentSpec.TargetScore)
-            {
-                EndStage(FailReason.None);
+                EndStage(false);
             }
             else if (ShotsLeft <= 0 || towerDone)
             {
-                EndStage(FailReason.OutOfShots);
+                EndStage(true);
             }
             else
             {
@@ -277,10 +268,10 @@ namespace OneTapDemolition
             }
         }
 
-        private void EndStage(FailReason reason)
+        private void EndStage(bool failed)
         {
             SetState(GameState.Result);
-            pendingFailReason = reason;
+            pendingFailed = failed;
             Invoke(nameof(ShowResult), resultDelay);
         }
 
@@ -289,13 +280,12 @@ namespace OneTapDemolition
             // 飛行中のポイントが残っていても、ここで全て表示に反映して☆判定を確定させる
             ScoreManager.Instance?.FlushDisplay();
 
-            bool failed = pendingFailReason != FailReason.None;
+            bool failed = pendingFailed;
             int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
             StageResult result = new StageResult
             {
                 Spec = CurrentSpec,
                 Failed = failed,
-                FailReason = pendingFailReason,
                 Score = score,
                 Stars = failed ? 0 : StarCount,
                 StarFlags = (bool[])starFlags.Clone(),

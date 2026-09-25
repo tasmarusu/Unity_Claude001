@@ -476,16 +476,6 @@ namespace OneTapDemolition
             PlayBanner(label, bad ? BadGateColor : GoodGateColor);
         }
 
-        public void ShowFailBanner()
-        {
-            if (bannerText == null)
-            {
-                return;
-            }
-
-            PlayBanner("NG!", BadGateColor);
-        }
-
         /// <summary>
         /// 画面中央の大きなバナー(MAX!/CLEAR等)。
         /// </summary>

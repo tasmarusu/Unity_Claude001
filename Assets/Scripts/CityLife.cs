@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -23,6 +23,24 @@ namespace OneTapDemolition
             public float ZEnd;
             public float SurfaceY;
             public float CrosswalkZ;
+        }
+
+        /// <summary>
+        /// 手前(カメラ側)の道路と、タワーとの間の広場の寸法。手前の車・歩行者の通り道に使う。
+        /// </summary>
+        public struct FrontInfo
+        {
+            public bool Valid;
+            public float RoadCenterZ;
+            public float RoadXMin;
+            public float RoadXMax;
+            public float RoadSurfaceY;
+            public float NearLaneOffset;
+            public float ViewCenterX;
+            public float PlazaZ;
+            public float PlazaHalfWidth;
+            public float GroundY;
+            public float CrosswalkX;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -61,9 +79,12 @@ namespace OneTapDemolition
                 yield break;
             }
 
+            FrontInfo front;
+            TryReadFront(out front);
+
             Run("props", () => CityStreetProps.Build(road, rng, transform));
-            Run("traffic", () => gameObject.AddComponent<CityTraffic>().Init(road, rng));
-            Run("pedestrians", () => gameObject.AddComponent<CityPedestrians>().Init(road, rng));
+            Run("traffic", () => gameObject.AddComponent<CityTraffic>().Init(road, front, rng));
+            Run("pedestrians", () => gameObject.AddComponent<CityPedestrians>().Init(road, front, rng));
         }
 
         private static void Run(string label, Action action)
@@ -98,6 +119,37 @@ namespace OneTapDemolition
             info.SurfaceY = p.y + s.y * 0.5f;
             info.CrosswalkZ = crosswalk != null ? crosswalk.transform.position.z : info.ZStart + 5f;
             return true;
+        }
+
+        private static void TryReadFront(out FrontInfo info)
+        {
+            info = default;
+            GameObject crossRoad = GameObject.Find("CrossRoad");
+            if (crossRoad == null)
+            {
+                return;
+            }
+            Renderer roadRenderer = crossRoad.GetComponent<Renderer>();
+            if (roadRenderer == null)
+            {
+                return;
+            }
+
+            Bounds b = roadRenderer.bounds;
+            GameObject crosswalk = GameObject.Find("Crosswalk_Front");
+            Camera cam = Camera.main;
+
+            info.Valid = true;
+            info.RoadCenterZ = b.center.z;
+            info.RoadXMin = b.min.x;
+            info.RoadXMax = b.max.x;
+            info.RoadSurfaceY = b.max.y;
+            info.NearLaneOffset = 4.2f;
+            info.ViewCenterX = cam != null ? cam.transform.position.x : 0f;
+            info.PlazaZ = b.max.z + 1.4f;
+            info.PlazaHalfWidth = 8f;
+            info.GroundY = -0.5f;
+            info.CrosswalkX = crosswalk != null ? crosswalk.GetComponent<Renderer>().bounds.center.x : 0f;
         }
 
         /// <summary>

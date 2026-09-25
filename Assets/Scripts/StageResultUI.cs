@@ -197,8 +197,7 @@ namespace OneTapDemolition
             resultPanel.SetActive(true);
             resultTitle.text = r.Failed ? "FAILED" : (r.Stars >= 3 ? "PERFECT!" : "CLEAR!");
             resultTitle.color = r.Failed ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
-            // KEEPを壊した失敗は得点が無効。高い数字が成功に見えないよう灰色にする
-            scoreText.color = r.FailReason == FailReason.ProtectedDestroyed ? new Color(0.6f, 0.6f, 0.65f, 1f) : Color.white;
+            scoreText.color = Color.white;
             scoreText.text = "0 / " + r.Spec.TargetScore;
             bestText.text = "";
             foreach (Image s in stars)
@@ -235,13 +234,9 @@ namespace OneTapDemolition
                 yield return null;
             }
             scoreText.text = r.Score + " / " + r.Spec.TargetScore;
-            if (r.FailReason == FailReason.OutOfShots)
+            if (r.Failed)
             {
                 bestText.text = "あと " + Mathf.Max(0, r.Spec.TargetScore - r.Score) + " ptでMAX";
-            }
-            else if (r.FailReason == FailReason.ProtectedDestroyed)
-            {
-                bestText.text = "KEEPの階を壊してしまった";
             }
             else
             {
