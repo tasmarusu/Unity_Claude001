@@ -63,6 +63,7 @@ namespace OneTapDemolition
         private int displayedScore;
         private float ghostNormalized;
         private bool gaugeMaxed;
+        private bool fullScoreAnnounced;
         private int starsAssigned;
         private int stageToken;
         private TapDemolishController controller;
@@ -346,6 +347,7 @@ namespace OneTapDemolition
             shownScore = 0f;
             ghostNormalized = 0f;
             gaugeMaxed = false;
+            fullScoreAnnounced = false;
             starsAssigned = 0;
             pulseSlotCount = 0;
 
@@ -455,6 +457,12 @@ namespace OneTapDemolition
         private void OnDisplayedScoreChanged(int added, int displayed)
         {
             displayedScore = displayed;
+            if (!fullScoreAnnounced && spec != null && displayed > 0 && displayed >= GaugeTotal() - 0.5f)
+            {
+                // ゲージが満タン(そのステージの最大得点)に届いた
+                fullScoreAnnounced = true;
+                ScoreFeedbackUI.Instance?.ShowBanner("FULL SCORE!", FillMax);
+            }
             if (added > 0)
             {
                 StartCoroutine(Pop(barRoot, 1.06f, 0.12f));

@@ -200,8 +200,10 @@ namespace OneTapDemolition
                 // クリアの瞬間にファンファーレを鳴らす(☆が点く音はその上に重ねる)
                 JuiceManager.Instance?.PlayFanfare(r.Stars >= 3);
             }
-            resultTitle.text = r.Failed ? "FAILED" : (r.Stars >= 3 ? "PERFECT!" : "CLEAR!");
-            resultTitle.color = r.Failed ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
+            // 満点(そのステージの最大得点)のときだけ FULL SCORE!。☆3つは PERFECT!
+            bool fullScore = !r.Failed && r.Spec != null && r.Score >= r.Spec.OptimalScore;
+            resultTitle.text = r.Failed ? "FAILED" : (fullScore ? "FULL SCORE!" : (r.Stars >= 3 ? "PERFECT!" : "CLEAR!"));
+            resultTitle.color = r.Failed ? new Color(1f, 0.45f, 0.45f, 1f) : (fullScore ? new Color(1f, 0.85f, 0.2f, 1f) : Color.white);
             scoreText.color = Color.white;
             scoreText.text = "0 / " + r.Spec.OptimalScore;
             bestText.text = "";
