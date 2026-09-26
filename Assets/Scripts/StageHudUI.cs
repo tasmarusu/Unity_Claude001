@@ -50,14 +50,10 @@ namespace OneTapDemolition
         private Text aimText;
         private RectTransform aimRect;
         private readonly Image[] aimStars = new Image[3];
-        private RectTransform guideLine;
-        private RectTransform guideCapLeft;
-        private RectTransform guideCapRight;
+        private GuideLine aimGuide;
+        private GuideLine hintGuide;
         private Button finishButton;
         private Button hintButton;
-        private RectTransform hintLine;
-        private RectTransform hintCapLeft;
-        private RectTransform hintCapRight;
         private Text hintText;
         private int hintIndex = -1;
         private int hintStage;
@@ -208,18 +204,7 @@ namespace OneTapDemolition
             UiKit.SetAnchored(hintButton.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f, 24f), new Vector2(300f, 100f));
             hintButton.gameObject.SetActive(false);
 
-            Color hintColor = new Color(0.55f, 1f, 0.6f, 0.95f);
-            Image hl = UiKit.Panel(canvasRect, "HintLine", hintColor, false);
-            hintLine = hl.rectTransform;
-            hintLine.sizeDelta = new Vector2(100f, 10f);
-            Image hcl = UiKit.Panel(canvasRect, "HintCapL", hintColor, false);
-            hcl.sprite = UiSprites.Circle;
-            hintCapLeft = hcl.rectTransform;
-            hintCapLeft.sizeDelta = new Vector2(34f, 34f);
-            Image hcr = UiKit.Panel(canvasRect, "HintCapR", hintColor, false);
-            hcr.sprite = UiSprites.Circle;
-            hintCapRight = hcr.rectTransform;
-            hintCapRight.sizeDelta = new Vector2(34f, 34f);
+            hintGuide = new GuideLine(canvasRect, "Hint", new Color(0.55f, 1f, 0.6f, 0.95f), 34f);
             hintText = UiKit.Label(canvasRect, "HintText", "", 44, new Color(0.7f, 1f, 0.7f, 1f), TextAnchor.MiddleLeft);
             hintText.rectTransform.sizeDelta = new Vector2(360f, 130f);
             SetHintVisible(false);
@@ -227,9 +212,7 @@ namespace OneTapDemolition
 
         private void SetHintVisible(bool visible)
         {
-            hintLine.gameObject.SetActive(visible);
-            hintCapLeft.gameObject.SetActive(visible);
-            hintCapRight.gameObject.SetActive(visible);
+            hintGuide.SetVisible(visible);
             hintText.gameObject.SetActive(visible);
         }
 
@@ -315,14 +298,7 @@ namespace OneTapDemolition
 
             SetHintVisible(true);
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 8f);
-            Vector2 delta = c - a;
-            hintLine.position = (a + c) * 0.5f;
-            hintLine.sizeDelta = new Vector2(delta.magnitude, 8f + 6f * pulse);
-            hintLine.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-            hintCapLeft.position = a;
-            hintCapRight.position = c;
-            hintCapLeft.localScale = Vector3.one * (1f + 0.35f * pulse);
-            hintCapRight.localScale = Vector3.one * (1f + 0.35f * pulse);
+            hintGuide.Place(a, c, 8f + 6f * pulse, 1f + 0.35f * pulse);
 
             // ラベルは線の右端の外側(建物に重ならない)。画面からはみ出さないよう収める
             float scale = canvasRect.lossyScale.x;
@@ -344,30 +320,13 @@ namespace OneTapDemolition
         /// </summary>
         private void BuildAimGuide()
         {
-            Color guideColor = new Color(1f, 0.95f, 0.45f, 0.95f);
-
-            Image line = UiKit.Panel(canvasRect, "AimGuideLine", guideColor, false);
-            guideLine = line.rectTransform;
-            guideLine.sizeDelta = new Vector2(100f, 8f);
-
-            Image left = UiKit.Panel(canvasRect, "AimGuideCapL", guideColor, false);
-            left.sprite = UiSprites.Circle;
-            guideCapLeft = left.rectTransform;
-            guideCapLeft.sizeDelta = new Vector2(30f, 30f);
-
-            Image right = UiKit.Panel(canvasRect, "AimGuideCapR", guideColor, false);
-            right.sprite = UiSprites.Circle;
-            guideCapRight = right.rectTransform;
-            guideCapRight.sizeDelta = new Vector2(30f, 30f);
-
+            aimGuide = new GuideLine(canvasRect, "AimGuide", new Color(1f, 0.95f, 0.45f, 0.95f), 30f);
             SetGuideVisible(false);
         }
 
         private void SetGuideVisible(bool visible)
         {
-            guideLine.gameObject.SetActive(visible);
-            guideCapLeft.gameObject.SetActive(visible);
-            guideCapRight.gameObject.SetActive(visible);
+            aimGuide.SetVisible(visible);
         }
 
         private void UpdateAimGuide(Floor floor)
@@ -391,12 +350,54 @@ namespace OneTapDemolition
             }
 
             SetGuideVisible(true);
-            Vector2 delta = c - a;
-            guideLine.position = (a + c) * 0.5f;
-            guideLine.sizeDelta = new Vector2(delta.magnitude, 8f);
-            guideLine.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-            guideCapLeft.position = a;
-            guideCapRight.position = c;
+            aimGuide.Place(a, c, 8f, 1f);
+        }
+
+        /// <summary>
+        /// 階の下端に引く「切断ライン」(線+両端の丸)。狙い中のガイドとヒントの両方で使う。
+        /// ビルより左右にはみ出して描くので、指で隠れてもどの階かが分かる。
+        /// </summary>
+        private class GuideLine
+        {
+            private readonly RectTransform line;
+            private readonly RectTransform capLeft;
+            private readonly RectTransform capRight;
+
+            public GuideLine(RectTransform parent, string name, Color color, float capSize)
+            {
+                Image l = UiKit.Panel(parent, name + "Line", color, false);
+                line = l.rectTransform;
+                line.sizeDelta = new Vector2(100f, 8f);
+
+                Image left = UiKit.Panel(parent, name + "CapL", color, false);
+                left.sprite = UiSprites.Circle;
+                capLeft = left.rectTransform;
+                capLeft.sizeDelta = new Vector2(capSize, capSize);
+
+                Image right = UiKit.Panel(parent, name + "CapR", color, false);
+                right.sprite = UiSprites.Circle;
+                capRight = right.rectTransform;
+                capRight.sizeDelta = new Vector2(capSize, capSize);
+            }
+
+            public void SetVisible(bool visible)
+            {
+                line.gameObject.SetActive(visible);
+                capLeft.gameObject.SetActive(visible);
+                capRight.gameObject.SetActive(visible);
+            }
+
+            public void Place(Vector3 a, Vector3 c, float thickness, float capScale)
+            {
+                Vector2 delta = c - a;
+                line.position = (a + c) * 0.5f;
+                line.sizeDelta = new Vector2(delta.magnitude, thickness);
+                line.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+                capLeft.position = a;
+                capRight.position = c;
+                capLeft.localScale = Vector3.one * capScale;
+                capRight.localScale = Vector3.one * capScale;
+            }
         }
 
         private void BuildGauge(RectTransform panel)

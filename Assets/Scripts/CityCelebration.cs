@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace OneTapDemolition
@@ -32,6 +33,7 @@ namespace OneTapDemolition
         private static readonly List<Eel> eels = new List<Eel>();
         private static GameObject mergedBackdrop;
         private static GameObject eelBackdrop;
+        private static Func<GameObject> eelBuilder;
         private bool eelsShown;
 
         /// <summary>お祝いの強さ(0で通常、1で全開)。なめらかに出入りする。</summary>
@@ -53,6 +55,7 @@ namespace OneTapDemolition
             eels.Clear();
             mergedBackdrop = null;
             eelBackdrop = null;
+            eelBuilder = null;
             Intensity = 0f;
             Clock = 0f;
         }
@@ -83,24 +86,15 @@ namespace OneTapDemolition
 
         /// <summary>
         /// 背景ビルを「1棟ずつ動かせる版」と入れ替える準備。通常は結合メッシュ(軽い)を描き、お祝い中だけ個別版に切り替える。
-        /// 個別版の各ビルは、足元(地面の中心)が原点のオブジェクト。
+        /// 個別版は初めてクリアしたときに builder で作る(起動時に何百個ものメッシュを作らない)。
+        /// builder は各ビルを子に持つルートを返す。各ビルは足元(地面の中心)が原点のオブジェクト。
         /// </summary>
-        public static void RegisterEelBackdrop(GameObject merged, GameObject individual, List<Transform> buildings)
+        public static void RegisterEelBackdrop(GameObject merged, Func<GameObject> builder)
         {
             mergedBackdrop = merged;
-            eelBackdrop = individual;
+            eelBuilder = builder;
+            eelBackdrop = null;
             eels.Clear();
-            foreach (Transform t in buildings)
-            {
-                eels.Add(new Eel
-                {
-                    Transform = t,
-                    X = t.position.x,
-                    Z = t.position.z,
-                    Phase = Mathf.Repeat(t.position.x * 12.9898f + t.position.z * 78.233f, 6.2832f)
-                });
-            }
-            individual.SetActive(false);
         }
 
         /// <summary>
@@ -163,12 +157,33 @@ namespace OneTapDemolition
 
         private void AnimateEels()
         {
-            if (eels.Count == 0 || mergedBackdrop == null || eelBackdrop == null)
+            if (mergedBackdrop == null || (eelBackdrop == null && eelBuilder == null))
             {
                 return;
             }
 
             bool want = Intensity > 0f;
+            if (want && eelBackdrop == null)
+            {
+                eelBackdrop = eelBuilder();
+                eelBuilder = null;
+                eelBackdrop.SetActive(false);
+                foreach (Transform t in eelBackdrop.transform)
+                {
+                    eels.Add(new Eel
+                    {
+                        Transform = t,
+                        X = t.position.x,
+                        Z = t.position.z,
+                        Phase = Mathf.Repeat(t.position.x * 12.9898f + t.position.z * 78.233f, 6.2832f)
+                    });
+                }
+            }
+            if (eelBackdrop == null)
+            {
+                return;
+            }
+
             if (want != eelsShown)
             {
                 eelsShown = want;

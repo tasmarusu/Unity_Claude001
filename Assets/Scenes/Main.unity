@@ -329,10 +329,7 @@ MonoBehaviour:
   sideForgiveness: 0.14
   gapForgiveness: 0.02
   edgeForgiveness: 0.09
-  touchVerticalOffset: 0.012
   stickiness: 0.3
-  minEffectiveFloorPixels: 130
-  cancelSideDistance: 0.42
 --- !u!1 &500000
 GameObject:
   m_ObjectHideFlags: 0

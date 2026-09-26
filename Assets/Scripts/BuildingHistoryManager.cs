@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace OneTapDemolition
 {
@@ -104,6 +104,15 @@ namespace OneTapDemolition
             UnlockedCount++;
             PlayerPrefs.SetInt(UnlockedCountKey, UnlockedCount);
             return unlocked;
+        }
+
+        /// <summary>
+        /// QAの自動プレイが進行度を元に戻すときに使う(PlayerPrefsだけでなく、メモリ上の解放数も戻す)。
+        /// </summary>
+        public void RestoreUnlockedCount(int count)
+        {
+            UnlockedCount = Mathf.Clamp(count, 0, TotalItems);
+            PlayerPrefs.SetInt(UnlockedCountKey, UnlockedCount);
         }
 
         /// <summary>

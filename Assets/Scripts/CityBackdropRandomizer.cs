@@ -131,9 +131,15 @@ namespace OneTapDemolition
                 groupIndex++;
             }
 
-            // クリア時はビルが1棟ずつチンアナゴになる
+            // クリア時はビルが1棟ずつチンアナゴになる(個別のメッシュは、初めてクリアしたときに作る)
+            CityCelebration.RegisterEelBackdrop(root, () => BuildEels(individuals));
+
+            backdrop.SetActive(false);
+        }
+
+        private static GameObject BuildEels(List<KeyValuePair<Material, KeyValuePair<Vector3, MeshBuffer>>> individuals)
+        {
             GameObject eelRoot = new GameObject("CityBackdropEels");
-            List<Transform> eelBuildings = new List<Transform>();
             foreach (KeyValuePair<Material, KeyValuePair<Vector3, MeshBuffer>> item in individuals)
             {
                 MeshBuffer own = item.Value.Value;
@@ -152,11 +158,8 @@ namespace OneTapDemolition
                 mr.sharedMaterial = item.Key;
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 mr.receiveShadows = true;
-                eelBuildings.Add(go.transform);
             }
-            CityCelebration.RegisterEelBackdrop(root, eelRoot, eelBuildings);
-
-            backdrop.SetActive(false);
+            return eelRoot;
         }
 
         private static Material PickMaterial(int index, int[] order, List<Slot> slots, Material[] assigned,

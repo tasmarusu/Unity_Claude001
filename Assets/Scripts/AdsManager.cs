@@ -1,5 +1,6 @@
 ﻿using System;
 using GoogleMobileAds.Api;
+using GoogleMobileAds.Common;
 using UnityEngine;
 
 namespace OneTapDemolition
@@ -88,6 +89,12 @@ namespace OneTapDemolition
         /// </summary>
         private void OnBannerLoaded()
         {
+            // 広告SDKのコールバックは別スレッドで来ることがある。Unity APIを触る処理はメインスレッドで実行する
+            MobileAdsEventExecutor.ExecuteInUpdate(ApplyBannerSafeArea);
+        }
+
+        private void ApplyBannerSafeArea()
+        {
             if (bannerView == null || Camera.main == null || Screen.height <= 0)
             {
                 return;
@@ -115,7 +122,7 @@ namespace OneTapDemolition
 
         private void LoadInterstitial()
         {
-            InterstitialAd.Load(InterstitialAdUnitId, new AdRequest(), (ad, error) =>
+            InterstitialAd.Load(InterstitialAdUnitId, new AdRequest(), (ad, error) => MobileAdsEventExecutor.ExecuteInUpdate(() =>
             {
                 if (error != null || ad == null)
                 {
@@ -124,9 +131,9 @@ namespace OneTapDemolition
                 }
 
                 interstitialAd = ad;
-                interstitialAd.OnAdFullScreenContentClosed += OnInterstitialClosed;
-                interstitialAd.OnAdFullScreenContentFailed += _ => OnInterstitialClosed();
-            });
+                interstitialAd.OnAdFullScreenContentClosed += () => MobileAdsEventExecutor.ExecuteInUpdate(OnInterstitialClosed);
+                interstitialAd.OnAdFullScreenContentFailed += _ => MobileAdsEventExecutor.ExecuteInUpdate(OnInterstitialClosed);
+            }));
         }
 
         private void OnInterstitialClosed()
@@ -157,7 +164,7 @@ namespace OneTapDemolition
 
         private void LoadRewarded()
         {
-            RewardedAd.Load(RewardedAdUnitId, new AdRequest(), (ad, error) =>
+            RewardedAd.Load(RewardedAdUnitId, new AdRequest(), (ad, error) => MobileAdsEventExecutor.ExecuteInUpdate(() =>
             {
                 if (error != null || ad == null)
                 {
@@ -166,9 +173,9 @@ namespace OneTapDemolition
                 }
 
                 rewardedAd = ad;
-                rewardedAd.OnAdFullScreenContentClosed += OnRewardedClosed;
-                rewardedAd.OnAdFullScreenContentFailed += _ => OnRewardedClosed();
-            });
+                rewardedAd.OnAdFullScreenContentClosed += () => MobileAdsEventExecutor.ExecuteInUpdate(OnRewardedClosed);
+                rewardedAd.OnAdFullScreenContentFailed += _ => MobileAdsEventExecutor.ExecuteInUpdate(OnRewardedClosed);
+            }));
         }
 
         private void OnRewardedClosed()
@@ -191,7 +198,7 @@ namespace OneTapDemolition
                 return;
             }
 
-            rewardedAd.Show(_ => onRewarded?.Invoke());
+            rewardedAd.Show(_ => MobileAdsEventExecutor.ExecuteInUpdate(() => onRewarded?.Invoke()));
 #endif
         }
     }

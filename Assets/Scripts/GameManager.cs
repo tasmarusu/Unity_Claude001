@@ -149,6 +149,13 @@ namespace OneTapDemolition
             gaugeMaxAnnounced = false;
             pendingFailed = false;
             totalShots = CurrentSpec.Shots + extraShots;
+            if (extraShots > 0)
+            {
+                // リワードで撃てる数が増えたときは、ゲージの母数(最大得点)も増えたショット数で計算し直す
+                int firstTap;
+                CurrentSpec.OptimalScore = Mathf.Max(CurrentSpec.OptimalScore,
+                    ScoreRules.BestScore(CurrentSpec.Floors, CurrentSpec.Floors.Length, totalShots, historyBonus, out firstTap));
+            }
             ShotsLeft = totalShots;
             shotsUsed = 0;
             SetState(GameState.Ready);
@@ -303,9 +310,17 @@ namespace OneTapDemolition
             if (!failed)
             {
                 ScoreManager.Instance?.CommitBestScore();
-                result.Unlocked = BuildingHistoryManager.Instance?.TryUnlockNext();
-                CurrentStageIndex = CurrentSpec.StageIndex + 1;
-                PlayerPrefs.SetInt(StageIndexKey, CurrentStageIndex);
+
+                // 建築史の解放と進行度は「初めてクリアしたとき」だけ。クリア済みステージのやり直しで何度も解放できないようにする
+                int progress = Mathf.Max(1, PlayerPrefs.GetInt(StageIndexKey, 1));
+                if (CurrentSpec.StageIndex >= progress)
+                {
+                    result.Unlocked = BuildingHistoryManager.Instance?.TryUnlockNext();
+                    progress = CurrentSpec.StageIndex + 1;
+                    PlayerPrefs.SetInt(StageIndexKey, progress);
+                }
+                // NEXTは常に進んだ先へ(やり直しでCurrentStageIndexが戻っていても)
+                CurrentStageIndex = progress;
                 PlayerPrefs.Save();
             }
 

@@ -276,6 +276,7 @@ namespace OneTapDemolition
             PlayerPrefs.SetInt(StageIndexKey, savedStage);
             PlayerPrefs.SetInt(BestScoreKey, savedBest);
             PlayerPrefs.SetInt(HistoryKey, savedHistory);
+            BuildingHistoryManager.Instance?.RestoreUnlockedCount(savedHistory);
             PlayerPrefs.Save();
 
             Report = "stages " + from + "-" + to + " runs=" + runs + " (cleared=" + clearedPlays + " failed=" + failedPlays + ")\n"
