@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -6,7 +6,8 @@ namespace OneTapDemolition
 {
     /// <summary>
     /// プレイ中のHUD。ステージ・残りショット・ポイントゲージ(現在/MAX)・☆カウンター・コンボ表示と、
-    /// 狙っている間の予測スコア(指の上+ゲージ上のゴースト)を出す。
+    /// 狙っている間の予測スコア(指の上+ゲージ上のゴースト+この一撃で取れる☆)を出す。
+    /// ☆の3条件は、すべて画面上に印がある: ゲージ上のMAXの☆、ゲージ右端の☆、建物のボーナス階の☆。
     /// ゲージは「表示スコア」(壊した階から飛んできたポイントが着いた分)に連動するので、
     /// 壊す→ポイントが飛ぶ→着く→ゲージが伸びる、が一続きに見える。
     /// 進行ロジックは持たず、GameManager/ScoreManager/TapDemolishControllerのイベントを表示するだけ。
@@ -38,31 +39,30 @@ namespace OneTapDemolition
         private RectTransform fill;
         private Image fillImage;
         private RectTransform ghost;
+        private RectTransform zoneRect;
         private RectTransform maxTick;
-        private Text maxTickLabel;
+        private Image maxStarMark;
         private Text gaugeLabel;
-        private Image starMark;
+        private Image endStarMark;
         private Image flash;
         private readonly Image[] slots = new Image[3];
         private Text comboText;
-        private Image comboStar;
         private Text aimText;
         private RectTransform aimRect;
         private readonly Image[] aimStars = new Image[3];
         private RectTransform guideLine;
         private RectTransform guideCapLeft;
         private RectTransform guideCapRight;
+        private Button finishButton;
         private int pulseSlotCount;
 
         private StageSpec spec;
         private float shownScore;
         private int displayedScore;
-        private float fillNormalized;
         private float ghostNormalized;
         private bool gaugeMaxed;
         private int starsAssigned;
         private int stageToken;
-        private int comboStep;
         private TapDemolishController controller;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -91,6 +91,7 @@ namespace OneTapDemolition
                 gm.StarAwarded += OnStarAwarded;
                 gm.GaugeMaxReached += OnGaugeMax;
                 gm.ComboChanged += OnComboChanged;
+                gm.StateChanged += OnStateChanged;
                 if (gm.CurrentSpec != null)
                 {
                     OnStageStarted(gm.CurrentSpec, gm.ShotsLeft);
@@ -121,6 +122,7 @@ namespace OneTapDemolition
                 gm.StarAwarded -= OnStarAwarded;
                 gm.GaugeMaxReached -= OnGaugeMax;
                 gm.ComboChanged -= OnComboChanged;
+                gm.StateChanged -= OnStateChanged;
             }
             if (ScoreManager.Instance != null)
             {
@@ -166,6 +168,16 @@ namespace OneTapDemolition
                 star.gameObject.SetActive(false);
                 aimStars[i] = star;
             }
+
+            // MAXに届いたあと、残りのショットを使わずに終えるボタン
+            finishButton = UiKit.MakeButton(safeRoot, "FinishButton", "FINISH", new Color(0.25f, 0.55f, 0.95f, 1f), new Vector2(360f, 110f), OnFinishClicked);
+            UiKit.SetAnchored(finishButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(360f, 110f));
+            finishButton.gameObject.SetActive(false);
+        }
+
+        private void OnFinishClicked()
+        {
+            GameManager.Instance?.FinishStage();
         }
 
         /// <summary>
@@ -239,7 +251,7 @@ namespace OneTapDemolition
             bg.color = BarBg;
             bg.raycastTarget = false;
 
-            // MAXから☆マークまでは「ここまで伸ばすと☆」の帯として薄い金色にする
+            // MAXから右端の☆までは「ここまで伸ばすと☆」の帯として薄い金色にする
             Image zone = UiKit.Panel(barRoot, "OvershootZone", OvershootZone, false);
             zone.rectTransform.anchorMin = new Vector2(0f, 0f);
             zone.rectTransform.anchorMax = new Vector2(0f, 1f);
@@ -254,28 +266,30 @@ namespace OneTapDemolition
             fill = fillImage.rectTransform;
             SetupFillRect(fill);
 
+            // ゲージ上のMAXの位置に☆を置く(MAXに届くと☆がもらえる)
             Image tick = UiKit.Panel(barRoot, "MaxTick", Color.white, false);
             maxTick = tick.rectTransform;
             UiKit.SetAnchored(maxTick, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(6f, BarHeight + 16f));
-            maxTickLabel = UiKit.Label(maxTick, "MaxLabel", "MAX", 28, Color.white);
-            UiKit.SetAnchored(maxTickLabel.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 0f), new Vector2(0f, 0f), new Vector2(120f, 34f));
 
-            gaugeLabel = UiKit.Label(barRoot, "GaugeLabel", "0 / 0", 36, Color.white);
+            gaugeLabel = UiKit.Label(barRoot, "GaugeLabel", "0 / 0", 36, Color.white, TextAnchor.MiddleLeft);
             gaugeLabel.rectTransform.anchorMin = Vector2.zero;
             gaugeLabel.rectTransform.anchorMax = Vector2.one;
-            gaugeLabel.rectTransform.sizeDelta = Vector2.zero;
+            gaugeLabel.rectTransform.offsetMin = new Vector2(24f, 0f);
+            gaugeLabel.rectTransform.offsetMax = Vector2.zero;
 
-            starMark = UiKit.Panel(barRoot, "StarMark", StarOff, false);
-            starMark.sprite = UiSprites.Star;
-            UiKit.SetAnchored(starMark.rectTransform, new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(70f, 70f));
+            maxStarMark = UiKit.Panel(barRoot, "MaxStarMark", StarOff, false);
+            maxStarMark.sprite = UiSprites.Star;
+            UiKit.SetAnchored(maxStarMark.rectTransform, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(70f, 70f));
+
+            endStarMark = UiKit.Panel(barRoot, "EndStarMark", StarOff, false);
+            endStarMark.sprite = UiSprites.Star;
+            UiKit.SetAnchored(endStarMark.rectTransform, new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(70f, 70f));
 
             flash = UiKit.Panel(barRoot, "Flash", new Color(1f, 1f, 1f, 0f));
             flash.rectTransform.anchorMin = Vector2.zero;
             flash.rectTransform.anchorMax = Vector2.one;
             flash.rectTransform.sizeDelta = Vector2.zero;
         }
-
-        private RectTransform zoneRect;
 
         private static void SetupFillRect(RectTransform rt)
         {
@@ -296,28 +310,11 @@ namespace OneTapDemolition
                 slots[i] = slot;
             }
 
-            comboText = UiKit.Label(panel, "ComboText", "COMBO", 42, Color.white, TextAnchor.MiddleRight);
-            UiKit.SetAnchored(comboText.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-110f, -178f), new Vector2(360f, 56f));
-
-            comboStar = UiKit.Panel(panel, "ComboStar", StarOff, false);
-            comboStar.sprite = UiSprites.Star;
-            UiKit.SetAnchored(comboStar.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -170f), new Vector2(68f, 68f));
-            Text five = UiKit.Label(comboStar.rectTransform, "Five", ScoreRules.ComboStarStep.ToString(), 32, Color.white);
-            five.rectTransform.anchorMin = Vector2.zero;
-            five.rectTransform.anchorMax = Vector2.one;
-            five.rectTransform.sizeDelta = Vector2.zero;
+            comboText = UiKit.Label(panel, "ComboText", "", 42, Color.white, TextAnchor.MiddleRight);
+            UiKit.SetAnchored(comboText.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -178f), new Vector2(360f, 56f));
         }
 
         // ---------------- Stage / shots ----------------
-
-        private void OnStageEnded(StageResult result)
-        {
-            // リザルトが前面に出るので、ゲージ/コンボ等のHUDは畳んで重なりを避ける
-            hudPanel.gameObject.SetActive(false);
-            aimText.gameObject.SetActive(false);
-            SetGuideVisible(false);
-            pulseSlotCount = 0;
-        }
 
         private void OnStageStarted(StageSpec newSpec, int shots)
         {
@@ -326,16 +323,14 @@ namespace OneTapDemolition
             spec = newSpec;
             displayedScore = 0;
             shownScore = 0f;
-            fillNormalized = 0f;
             ghostNormalized = 0f;
             gaugeMaxed = false;
             starsAssigned = 0;
-            comboStep = 0;
+            pulseSlotCount = 0;
 
             stageText.text = "STAGE " + newSpec.StageIndex;
-            starMark.color = StarOff;
-            comboStar.color = StarOff;
-            comboStar.rectTransform.localScale = Vector3.one;
+            endStarMark.color = StarOff;
+            maxStarMark.color = StarOff;
             foreach (Image slot in slots)
             {
                 slot.color = StarOff;
@@ -343,18 +338,37 @@ namespace OneTapDemolition
             }
             fillImage.color = FillNormal;
             barRoot.localScale = Vector3.one;
-            comboText.text = "COMBO";
+            comboText.text = "";
 
             float targetNorm = TargetNormalized();
-            maxTick.anchoredPosition = new Vector2(BarInset + targetNorm * (BarWidth - BarInset * 2f), 0f);
-            zoneRect.anchoredPosition = new Vector2(BarInset + targetNorm * (BarWidth - BarInset * 2f), 0f);
-            zoneRect.sizeDelta = new Vector2((1f - targetNorm) * (BarWidth - BarInset * 2f), -BarInset * 2f);
+            float maxWidth = BarWidth - BarInset * 2f;
+            maxTick.anchoredPosition = new Vector2(BarInset + targetNorm * maxWidth, 0f);
+            maxStarMark.rectTransform.anchoredPosition = new Vector2(BarInset + targetNorm * maxWidth, 0f);
+            zoneRect.anchoredPosition = new Vector2(BarInset + targetNorm * maxWidth, 0f);
+            zoneRect.sizeDelta = new Vector2((1f - targetNorm) * maxWidth, -BarInset * 2f);
             ghost.sizeDelta = new Vector2(0f, -BarInset * 2f);
             fill.sizeDelta = new Vector2(0f, -BarInset * 2f);
             aimText.gameObject.SetActive(false);
-            pulseSlotCount = 0;
+            finishButton.gameObject.SetActive(false);
+            SetGuideVisible(false);
             UpdateGaugeLabel();
             RebuildPips(shots);
+        }
+
+        private void OnStageEnded(StageResult result)
+        {
+            // リザルトが前面に出るので、ゲージ/コンボ等のHUDは畳んで重なりを避ける
+            hudPanel.gameObject.SetActive(false);
+            aimText.gameObject.SetActive(false);
+            finishButton.gameObject.SetActive(false);
+            SetGuideVisible(false);
+            pulseSlotCount = 0;
+        }
+
+        private void OnStateChanged(GameState state)
+        {
+            // MAXに届いたあと、次のショットを待っている間だけFINISHを出す
+            finishButton.gameObject.SetActive(gaugeMaxed && state == GameState.Playing);
         }
 
         private float TargetNormalized()
@@ -421,8 +435,7 @@ namespace OneTapDemolition
                 shownScore = displayedScore;
             }
 
-            float targetNorm = Mathf.Clamp01(shownScore / spec.StarScore);
-            fillNormalized = targetNorm;
+            float fillNormalized = Mathf.Clamp01(shownScore / spec.StarScore);
             float maxWidth = BarWidth - BarInset * 2f;
             fill.sizeDelta = new Vector2(fillNormalized * maxWidth, -BarInset * 2f);
             ghost.sizeDelta = new Vector2(Mathf.Max(fillNormalized, ghostNormalized) * maxWidth, -BarInset * 2f);
@@ -435,11 +448,12 @@ namespace OneTapDemolition
             // 今の狙いで取れる☆の数だけ、☆カウンターの次の空きスロットを脈動させて「ここに入る」と示す
             for (int i = 0; i < slots.Length; i++)
             {
-                bool wouldFill = i >= starsAssigned && i < starsAssigned + pulseSlotCount;
                 if (slots[i].color == StarOn)
                 {
                     continue;
                 }
+
+                bool wouldFill = i >= starsAssigned && i < starsAssigned + pulseSlotCount;
                 if (wouldFill)
                 {
                     float p = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 12f);
@@ -452,13 +466,6 @@ namespace OneTapDemolition
                     slots[i].rectTransform.localScale = Vector3.one;
                 }
             }
-
-            // 連鎖があと1で☆のとき、☆アイコンを脈動させて予兆を出す
-            if (comboStep == ScoreRules.ComboStarStep - 1 && comboStar.color == StarOff)
-            {
-                float s = 1f + 0.18f * Mathf.Sin(Time.unscaledTime * 16f);
-                comboStar.rectTransform.localScale = Vector3.one * s;
-            }
         }
 
         private void UpdateGaugeLabel()
@@ -467,7 +474,7 @@ namespace OneTapDemolition
             {
                 return;
             }
-            gaugeLabel.text = gaugeMaxed ? "MAX!  " + Mathf.RoundToInt(shownScore) : Mathf.RoundToInt(shownScore) + " / " + spec.TargetScore;
+            gaugeLabel.text = Mathf.RoundToInt(shownScore) + " / " + spec.TargetScore;
         }
 
         private void OnGaugeMax()
@@ -476,7 +483,7 @@ namespace OneTapDemolition
             StartCoroutine(Pop(barRoot, 1.14f, 0.28f));
             StartCoroutine(FlashRoutine());
             ScoreFeedbackUI.Instance?.ShowBanner("MAX!", FillMax);
-            JuiceManager.Instance?.PlayStarNote(2);
+            finishButton.gameObject.SetActive(GameManager.Instance != null && GameManager.Instance.State == GameState.Playing);
         }
 
         private IEnumerator FlashRoutine()
@@ -500,15 +507,10 @@ namespace OneTapDemolition
 
         private void OnComboChanged(int step)
         {
-            comboStep = step;
-            comboText.text = step > 0 ? "COMBO " + step : "COMBO";
+            comboText.text = step > 0 ? "COMBO " + step : "";
             if (step > 0)
             {
                 StartCoroutine(Pop(comboText.rectTransform, 1.25f, 0.14f));
-            }
-            else if (comboStar.color == StarOff)
-            {
-                comboStar.rectTransform.localScale = Vector3.one;
             }
         }
 
@@ -524,14 +526,13 @@ namespace OneTapDemolition
                         ? Camera.main.WorldToScreenPoint(worldPosition.Value)
                         : new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0f);
                     break;
-                case StarReason.Combo:
-                    comboStar.color = StarOn;
-                    comboStar.rectTransform.localScale = Vector3.one;
-                    start = comboStar.rectTransform.position;
+                case StarReason.Max:
+                    maxStarMark.color = StarOn;
+                    start = maxStarMark.rectTransform.position;
                     break;
                 default:
-                    starMark.color = StarOn;
-                    start = starMark.rectTransform.position;
+                    endStarMark.color = StarOn;
+                    start = endStarMark.rectTransform.position;
                     break;
             }
 
@@ -541,7 +542,7 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// ☆が条件を満たした場所(ボーナス階/コンボ表示/ゲージの☆マーク)から弾け出て、☆カウンターへ飛ぶ。
+        /// ☆が条件を満たした場所(ボーナス階/ゲージのMAX/ゲージ右端)から弾け出て、☆カウンターへ飛ぶ。
         /// </summary>
         private IEnumerator StarFlight(Vector3 start, int slotIndex, int token)
         {
@@ -620,9 +621,9 @@ namespace OneTapDemolition
 
             // この一撃で取れる☆(まだ取っていない条件だけ)
             bool bonus = !gm.HasStar(StarReason.BonusFloor) && ScoreRules.ChainIncludesBonus(spec.Floors, tapIndex, alive);
-            bool combo = !gm.HasStar(StarReason.Combo) && alive - tapIndex >= ScoreRules.ComboStarStep;
+            bool max = !gm.HasStar(StarReason.Max) && reachesMax;
             bool overshoot = !gm.HasStar(StarReason.Overshoot) && displayedScore + predicted >= spec.StarScore;
-            int starCount = (bonus ? 1 : 0) + (combo ? 1 : 0) + (overshoot ? 1 : 0);
+            int starCount = (bonus ? 1 : 0) + (max ? 1 : 0) + (overshoot ? 1 : 0);
             pulseSlotCount = starCount;
 
             aimText.gameObject.SetActive(true);

@@ -25,7 +25,8 @@ namespace OneTapDemolition
     /// <summary>
     /// ステージ進行(準備→プレイ→崩落中→リザルト)と、ショット数・ゲージMAX(クリア)・☆・進行度の保存を制御する。
     /// UIはここのイベントを購読するだけで、進行ロジックは持たない。
-    /// ☆は3種類: ボーナス階の破壊 / 1発で連鎖5 / 表示スコアがゲージの☆マークに到達。
+    /// ☆は3種類(すべて画面上に印がある): ボーナス階の破壊 / ゲージのMAXに到達 / ゲージ右端の☆マークに到達。
+    /// MAXに届いてもショットと階が残っていれば続けられる(☆マークを狙う)。
     /// </summary>
     public class GameManager : MonoBehaviour
     {
@@ -200,15 +201,11 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// 連鎖の何段目まで崩れたか(1発ごと)。HUDのコンボ表示に使い、連鎖5で☆を出す。
+        /// 連鎖の何段目まで崩れたか(1発ごと)。HUDのコンボ表示に使う。
         /// </summary>
         public void NotifyChainStep(int chainStep)
         {
             ComboChanged?.Invoke(chainStep);
-            if (chainStep >= ScoreRules.ComboStarStep)
-            {
-                TryAwardStar(StarReason.Combo, null);
-            }
         }
 
         /// <summary>
@@ -236,6 +233,7 @@ namespace OneTapDemolition
             if (!gaugeMaxAnnounced && displayed >= CurrentSpec.TargetScore && displayed > 0)
             {
                 gaugeMaxAnnounced = true;
+                TryAwardStar(StarReason.Max, null);
                 GaugeMaxReached?.Invoke();
             }
             if (displayed >= CurrentSpec.StarScore && displayed > 0)
@@ -253,18 +251,28 @@ namespace OneTapDemolition
 
             int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
             bool towerDone = currentTower == null || currentTower.AliveCount <= 0;
+            bool everythingEarned = starFlags[(int)StarReason.BonusFloor] && score >= CurrentSpec.StarScore;
 
-            if (score >= CurrentSpec.TargetScore)
+            // MAXに届いても、ショットと階が残っていて☆が残っているなら続けられる。撃ち切る/壊し切る/☆を全部取ると終わる。
+            if (towerDone || ShotsLeft <= 0 || everythingEarned)
             {
-                EndStage(false);
-            }
-            else if (ShotsLeft <= 0 || towerDone)
-            {
-                EndStage(true);
+                EndStage(score < CurrentSpec.TargetScore);
             }
             else
             {
                 SetState(GameState.Playing);
+            }
+        }
+
+        /// <summary>
+        /// MAXに届いたあと、残りのショットを使わずにここで終える(FINISHボタン)。MAX未達では終えられない。
+        /// </summary>
+        public void FinishStage()
+        {
+            int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
+            if (State == GameState.Playing && CurrentSpec != null && score >= CurrentSpec.TargetScore)
+            {
+                EndStage(false);
             }
         }
 

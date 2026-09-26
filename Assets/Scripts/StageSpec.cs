@@ -23,10 +23,13 @@ namespace OneTapDemolition
         public static FloorSpec Bonus => new FloorSpec { Kind = FloorKind.Bonus, GateValue = 1f };
     }
 
+    /// <summary>
+    /// ☆の3条件。すべて画面上に印がある: 建物の☆(ボーナス階)、ゲージの目標(MAX)の☆、ゲージ右端の☆。
+    /// </summary>
     public enum StarReason
     {
         BonusFloor,
-        Combo,
+        Max,
         Overshoot
     }
 
@@ -55,7 +58,6 @@ namespace OneTapDemolition
         public const float ComboBonusPerStep = 0.1f;
         public const float ComboCap = 3f;
         public const float BonusFloorMultiplier = 2f;
-        public const int ComboStarStep = 5;
 
         public static float ComboMultiplier(int chainStep)
         {
@@ -115,36 +117,49 @@ namespace OneTapDemolition
         }
 
         /// <summary>
-        /// このステージで☆3つ(ボーナス階・1発で連鎖5・☆マークまで)を全部取れる撃ち方が存在するか。
-        /// 実際のルールどおり、MAXに達した一撃でステージが終わる(その後は撃てない)ことを前提に、
-        /// タップ位置が単調に下がる全ての撃ち方を総当たりで調べる。ステージ生成で「☆3が取れないステージ」を作らないために使う。
+        /// このステージで☆3つ(ボーナス階を壊す・MAXに届く・ゲージ右端の☆まで届く)を全部取れる撃ち方が存在するか。
+        /// MAXに届いてもショットと階が残っていれば続けられる実際のルールどおり、
+        /// タップ位置が単調に下がる全ての撃ち方を総当たりで調べる。
         /// </summary>
         public static bool AllStarsFeasible(StageSpec spec, float historyBonus)
         {
-            return AllStarsSearch(spec, spec.Floors.Length, spec.Shots, 0, false, false, historyBonus);
+            return FindThreeStarPlan(spec, historyBonus, null);
         }
 
-        private static bool AllStarsSearch(StageSpec spec, int limit, int shotsLeft, int score, bool bonus, bool combo, float historyBonus)
+        /// <summary>
+        /// ☆3つを取れる撃ち方(タップする階の並び)を探す。見つかればtrueで、planに順番に入れる(planがnullなら存在確認のみ)。
+        /// 実機同様の自動プレイ検証(StageAutoPlayer)が、この手順をそのまま実行して本当に☆3つになるか確かめる。
+        /// </summary>
+        public static bool FindThreeStarPlan(StageSpec spec, float historyBonus, System.Collections.Generic.List<int> plan)
+        {
+            return PlanSearch(spec, spec.Floors.Length, spec.Shots, 0, false, historyBonus, plan);
+        }
+
+        private static bool PlanSearch(StageSpec spec, int limit, int shotsLeft, int score, bool bonus, float historyBonus,
+            System.Collections.Generic.List<int> plan)
         {
             for (int j = 0; j < limit; j++)
             {
                 int total = score + SimulateTap(spec.Floors, j, limit, historyBonus);
                 bool gotBonus = bonus || ChainIncludesBonus(spec.Floors, j, limit);
-                bool gotCombo = combo || limit - j >= ComboStarStep;
 
-                if (total >= spec.TargetScore)
+                if (plan != null)
                 {
-                    // MAXに達した一撃でステージ終了。このときに3条件が揃っていれば☆3
-                    if (gotBonus && gotCombo && total >= spec.StarScore)
-                    {
-                        return true;
-                    }
-                    continue;
+                    plan.Add(j);
                 }
 
-                if (shotsLeft > 1 && j > 0 && AllStarsSearch(spec, j, shotsLeft - 1, total, gotBonus, gotCombo, historyBonus))
+                if (gotBonus && total >= spec.StarScore)
                 {
                     return true;
+                }
+                if (shotsLeft > 1 && j > 0 && PlanSearch(spec, j, shotsLeft - 1, total, gotBonus, historyBonus, plan))
+                {
+                    return true;
+                }
+
+                if (plan != null)
+                {
+                    plan.RemoveAt(plan.Count - 1);
                 }
             }
             return false;
