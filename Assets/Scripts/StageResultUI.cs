@@ -203,7 +203,7 @@ namespace OneTapDemolition
             resultTitle.text = r.Failed ? "FAILED" : (r.Stars >= 3 ? "PERFECT!" : "CLEAR!");
             resultTitle.color = r.Failed ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
             scoreText.color = Color.white;
-            scoreText.text = "0 / " + r.Spec.TargetScore;
+            scoreText.text = "0 / " + r.Spec.OptimalScore;
             bestText.text = "";
             foreach (Image s in stars)
             {
@@ -235,13 +235,13 @@ namespace OneTapDemolition
             while (t < countDuration)
             {
                 t += Time.unscaledDeltaTime;
-                scoreText.text = Mathf.RoundToInt(Mathf.Lerp(0f, r.Score, Mathf.Clamp01(t / countDuration))) + " / " + r.Spec.TargetScore;
+                scoreText.text = Mathf.RoundToInt(Mathf.Lerp(0f, r.Score, Mathf.Clamp01(t / countDuration))) + " / " + r.Spec.OptimalScore;
                 yield return null;
             }
-            scoreText.text = r.Score + " / " + r.Spec.TargetScore;
+            scoreText.text = r.Score + " / " + r.Spec.OptimalScore;
             if (r.Failed)
             {
-                bestText.text = "あと " + Mathf.Max(0, r.Spec.TargetScore - r.Score) + " ptでMAX";
+                bestText.text = "あと " + Mathf.Max(0, r.Spec.TargetScore - r.Score) + " ptでクリア";
             }
             else
             {

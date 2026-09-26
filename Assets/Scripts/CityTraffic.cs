@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace OneTapDemolition
@@ -22,6 +22,7 @@ namespace OneTapDemolition
             public float Speed;
             public float S;
             public bool IsTaxi;
+            public Vector3 BaseScale = Vector3.one;
         }
 
         private class Flow
@@ -130,6 +131,7 @@ namespace OneTapDemolition
                         Transform = go.transform,
                         Renderer = go.GetComponentInChildren<MeshRenderer>(),
                         Length = length,
+                        BaseScale = go.transform.localScale,
                         IsTaxi = prefab.name.Contains("Taxi")
                     });
                 }
@@ -298,10 +300,25 @@ namespace OneTapDemolition
             Vector3 position;
             Vector3 forward;
             flow.Path.Evaluate(car.S, out position, out forward);
+
+            // クリアのお祝い: 車がホップして左右に傾き、着地でむにっとつぶれる
+            float party = CityCelebration.Intensity;
+            float phase = car.Length * 1.3f;
+            float hop = party > 0f ? CityCelebration.Hop(phase, 0.9f) : 0f;
+            position.y += hop * 0.7f * party;
             car.Transform.position = position;
+            if (party > 0f || car.Transform.localScale != car.BaseScale)
+            {
+                float squash = 1f + 0.12f * party * (0.5f - hop);
+                car.Transform.localScale = new Vector3(car.BaseScale.x / squash, car.BaseScale.y * squash, car.BaseScale.z / squash);
+            }
             if (forward.sqrMagnitude > 0.0001f)
             {
                 Quaternion want = Quaternion.LookRotation(forward, Vector3.up);
+                if (party > 0f)
+                {
+                    want *= Quaternion.Euler(Mathf.Sin(CityCelebration.Clock * 7f + phase) * 6f * party, 0f, Mathf.Sin(CityCelebration.Clock * 5f + phase) * 9f * party);
+                }
                 car.Transform.rotation = Quaternion.Slerp(car.Transform.rotation, want, Mathf.Clamp01(dt * 10f));
             }
         }

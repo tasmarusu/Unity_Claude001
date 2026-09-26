@@ -1,4 +1,4 @@
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -56,6 +56,8 @@ namespace OneTapDemolition
         private Button finishButton;
         private int pulseSlotCount;
 
+        public static StageHudUI Instance { get; private set; }
+
         private StageSpec spec;
         private float shownScore;
         private int displayedScore;
@@ -75,8 +77,23 @@ namespace OneTapDemolition
             new GameObject(nameof(StageHudUI)).AddComponent<StageHudUI>();
         }
 
+        /// <summary>
+        /// 飛んできた「+N」が着く位置(ゲージの塗りの先頭)。上部のスコア数字を廃止したので、ここへ吸い込まれる。
+        /// </summary>
+        public Vector3 ScoreLandingPosition()
+        {
+            if (fill == null || !hudPanel.gameObject.activeInHierarchy)
+            {
+                return new Vector3(Screen.width * 0.5f, Screen.height * 0.9f, 0f);
+            }
+            Vector3 p = fill.position;
+            p.x += Mathf.Max(30f, fill.sizeDelta.x) * fill.lossyScale.x;
+            return p;
+        }
+
         private void Start()
         {
+            Instance = this;
             Canvas canvas = UiKit.CreateCanvas("StageHudCanvas", 5);
             canvasRect = canvas.transform as RectTransform;
             safeRoot = UiKit.CreateSafeRoot(canvas);
@@ -113,6 +130,10 @@ namespace OneTapDemolition
 
         private void OnDestroy()
         {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
             GameManager gm = GameManager.Instance;
             if (gm != null)
             {
@@ -138,10 +159,10 @@ namespace OneTapDemolition
 
         private void BuildHud()
         {
-            // スコア(シーン側のScoreCanvas)は上端中央の約180ユニットを使うので、その直下に並べる
+            // 上端に置く(以前は上端中央の大きなスコア数字の直下だったが、ゲージに現在値/最大値があるので数字は廃止)
             RectTransform panel = UiKit.NewRect("HudPanel", safeRoot);
             hudPanel = panel;
-            UiKit.SetAnchored(panel, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -186f), new Vector2(BarWidth + 60f, 250f));
+            UiKit.SetAnchored(panel, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -24f), new Vector2(BarWidth + 60f, 250f));
 
             stageText = UiKit.Label(panel, "StageText", "STAGE 1", 46, Color.white, TextAnchor.MiddleLeft);
             UiKit.SetAnchored(stageText.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(20f, 0f), new Vector2(300f, 60f));
@@ -251,7 +272,7 @@ namespace OneTapDemolition
             bg.color = BarBg;
             bg.raycastTarget = false;
 
-            // MAXから右端の☆までは「ここまで伸ばすと☆」の帯として薄い金色にする
+            // クリアの印から右側の☆までは「ここまで伸ばすと☆」の帯として薄い金色にする
             Image zone = UiKit.Panel(barRoot, "OvershootZone", OvershootZone, false);
             zone.rectTransform.anchorMin = new Vector2(0f, 0f);
             zone.rectTransform.anchorMax = new Vector2(0f, 1f);
@@ -266,7 +287,7 @@ namespace OneTapDemolition
             fill = fillImage.rectTransform;
             SetupFillRect(fill);
 
-            // ゲージ上のMAXの位置に☆を置く(MAXに届くと☆がもらえる)
+            // ゲージ上のクリアの位置に☆を置く(届くとクリア確定+☆がもらえる)
             Image tick = UiKit.Panel(barRoot, "MaxTick", Color.white, false);
             maxTick = tick.rectTransform;
             UiKit.SetAnchored(maxTick, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(6f, BarHeight + 16f));
@@ -283,7 +304,7 @@ namespace OneTapDemolition
 
             endStarMark = UiKit.Panel(barRoot, "EndStarMark", StarOff, false);
             endStarMark.sprite = UiSprites.Star;
-            UiKit.SetAnchored(endStarMark.rectTransform, new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(70f, 70f));
+            UiKit.SetAnchored(endStarMark.rectTransform, new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(70f, 70f));
 
             flash = UiKit.Panel(barRoot, "Flash", new Color(1f, 1f, 1f, 0f));
             flash.rectTransform.anchorMin = Vector2.zero;
@@ -345,7 +366,9 @@ namespace OneTapDemolition
             maxTick.anchoredPosition = new Vector2(BarInset + targetNorm * maxWidth, 0f);
             maxStarMark.rectTransform.anchoredPosition = new Vector2(BarInset + targetNorm * maxWidth, 0f);
             zoneRect.anchoredPosition = new Vector2(BarInset + targetNorm * maxWidth, 0f);
-            zoneRect.sizeDelta = new Vector2((1f - targetNorm) * maxWidth, -BarInset * 2f);
+            float starNorm = StarNormalized();
+            zoneRect.sizeDelta = new Vector2(Mathf.Max(0f, starNorm - targetNorm) * maxWidth, -BarInset * 2f);
+            endStarMark.rectTransform.anchoredPosition = new Vector2(BarInset + starNorm * maxWidth, 0f);
             ghost.sizeDelta = new Vector2(0f, -BarInset * 2f);
             fill.sizeDelta = new Vector2(0f, -BarInset * 2f);
             aimText.gameObject.SetActive(false);
@@ -371,9 +394,26 @@ namespace OneTapDemolition
             finishButton.gameObject.SetActive(gaugeMaxed && state == GameState.Playing);
         }
 
+        /// <summary>
+        /// ゲージの右端(=母数)は、そのステージで出せる最大得点。クリアの印と右側の☆はその途中に置く。
+        /// </summary>
+        private float GaugeTotal()
+        {
+            if (spec == null)
+            {
+                return 1f;
+            }
+            return Mathf.Max(1, spec.OptimalScore, spec.StarScore);
+        }
+
         private float TargetNormalized()
         {
-            return spec != null && spec.StarScore > 0 ? Mathf.Clamp01(spec.TargetScore / (float)spec.StarScore) : 0.66f;
+            return spec != null ? Mathf.Clamp01(spec.TargetScore / GaugeTotal()) : 0.6f;
+        }
+
+        private float StarNormalized()
+        {
+            return spec != null ? Mathf.Clamp01(spec.StarScore / GaugeTotal()) : 0.75f;
         }
 
         private void RebuildPips(int total)
@@ -435,7 +475,7 @@ namespace OneTapDemolition
                 shownScore = displayedScore;
             }
 
-            float fillNormalized = Mathf.Clamp01(shownScore / spec.StarScore);
+            float fillNormalized = Mathf.Clamp01(shownScore / GaugeTotal());
             float maxWidth = BarWidth - BarInset * 2f;
             fill.sizeDelta = new Vector2(fillNormalized * maxWidth, -BarInset * 2f);
             ghost.sizeDelta = new Vector2(Mathf.Max(fillNormalized, ghostNormalized) * maxWidth, -BarInset * 2f);
@@ -474,7 +514,7 @@ namespace OneTapDemolition
             {
                 return;
             }
-            gaugeLabel.text = Mathf.RoundToInt(shownScore) + " / " + spec.TargetScore;
+            gaugeLabel.text = Mathf.RoundToInt(shownScore) + " / " + Mathf.RoundToInt(GaugeTotal());
         }
 
         private void OnGaugeMax()
@@ -482,7 +522,7 @@ namespace OneTapDemolition
             gaugeMaxed = true;
             StartCoroutine(Pop(barRoot, 1.14f, 0.28f));
             StartCoroutine(FlashRoutine());
-            ScoreFeedbackUI.Instance?.ShowBanner("MAX!", FillMax);
+            ScoreFeedbackUI.Instance?.ShowBanner("CLEAR!", FillMax);
             finishButton.gameObject.SetActive(GameManager.Instance != null && GameManager.Instance.State == GameState.Playing);
         }
 
@@ -627,7 +667,7 @@ namespace OneTapDemolition
             pulseSlotCount = starCount;
 
             aimText.gameObject.SetActive(true);
-            aimText.text = "+" + predicted + (reachesMax ? "  MAX!" : "");
+            aimText.text = "+" + predicted + (reachesMax ? "  CLEAR!" : "");
             aimText.color = reachesMax ? FillMax : GoodColor;
             for (int i = 0; i < aimStars.Length; i++)
             {
@@ -635,7 +675,7 @@ namespace OneTapDemolition
                 // 表示する☆をラベルの真下で左右対称に並べる
                 aimStars[i].rectTransform.anchoredPosition = new Vector2((i - (starCount - 1) * 0.5f) * 84f, -4f);
             }
-            ghostNormalized = Mathf.Clamp01((displayedScore + predicted) / (float)spec.StarScore);
+            ghostNormalized = Mathf.Clamp01((displayedScore + predicted) / GaugeTotal());
 
             Vector2 local;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screenPosition + new Vector2(0f, Screen.height * 0.12f), null, out local);

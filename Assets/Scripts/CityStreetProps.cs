@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace OneTapDemolition
@@ -96,6 +96,7 @@ namespace OneTapDemolition
                 mr.sharedMaterial = pair.Key;
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 mr.receiveShadows = true;
+                CityCelebration.RegisterSwayer(go.transform, mr.bounds, 0.8f, 0.12f);
             }
         }
 

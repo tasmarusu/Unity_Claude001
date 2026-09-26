@@ -79,6 +79,8 @@ namespace OneTapDemolition
 
             Material[] assigned = new Material[slots.Count];
             Dictionary<Material, MeshBuffer> buffers = new Dictionary<Material, MeshBuffer>();
+            List<KeyValuePair<Material, KeyValuePair<Vector3, MeshBuffer>>> individuals =
+                new List<KeyValuePair<Material, KeyValuePair<Vector3, MeshBuffer>>>();
 
             foreach (int index in order)
             {
@@ -100,9 +102,16 @@ namespace OneTapDemolition
                 Vector3 position = new Vector3(slot.Position.x, baseY + newHeight * 0.5f, slot.Position.z);
                 Vector3 scale = new Vector3(slot.Scale.x, newHeight, slot.Scale.z);
                 Append(buffer, Matrix4x4.TRS(position, slot.Rotation, scale), newHeight / slot.Scale.y);
+
+                // クリア演出用の1棟ずつの版(足元が原点)。普段は使わず、お祝い中だけ切り替える
+                MeshBuffer own = new MeshBuffer();
+                Append(own, Matrix4x4.TRS(new Vector3(0f, newHeight * 0.5f, 0f), slot.Rotation, scale), newHeight / slot.Scale.y);
+                individuals.Add(new KeyValuePair<Material, KeyValuePair<Vector3, MeshBuffer>>(
+                    chosen, new KeyValuePair<Vector3, MeshBuffer>(new Vector3(slot.Position.x, baseY, slot.Position.z), own)));
             }
 
             GameObject root = new GameObject("CityBackdropRuntime");
+            int groupIndex = 0;
             foreach (KeyValuePair<Material, MeshBuffer> pair in buffers)
             {
                 Mesh mesh = new Mesh { name = "BackdropCombined_" + pair.Key.name };
@@ -119,7 +128,33 @@ namespace OneTapDemolition
                 mr.sharedMaterial = pair.Key;
                 mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
                 mr.receiveShadows = true;
+                groupIndex++;
             }
+
+            // クリア時はビルが1棟ずつチンアナゴになる
+            GameObject eelRoot = new GameObject("CityBackdropEels");
+            List<Transform> eelBuildings = new List<Transform>();
+            foreach (KeyValuePair<Material, KeyValuePair<Vector3, MeshBuffer>> item in individuals)
+            {
+                MeshBuffer own = item.Value.Value;
+                Mesh mesh = new Mesh { name = "BackdropEel" };
+                mesh.SetVertices(own.Vertices);
+                mesh.SetNormals(own.Normals);
+                mesh.SetUVs(0, own.Uvs);
+                mesh.SetTriangles(own.Triangles, 0);
+                mesh.RecalculateBounds();
+
+                GameObject go = new GameObject("Eel");
+                go.transform.SetParent(eelRoot.transform, false);
+                go.transform.position = item.Value.Key;
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                MeshRenderer mr = go.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = item.Key;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                mr.receiveShadows = true;
+                eelBuildings.Add(go.transform);
+            }
+            CityCelebration.RegisterEelBackdrop(root, eelRoot, eelBuildings);
 
             backdrop.SetActive(false);
         }

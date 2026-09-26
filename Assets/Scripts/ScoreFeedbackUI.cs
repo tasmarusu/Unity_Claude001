@@ -279,6 +279,10 @@ namespace OneTapDemolition
 
         private Vector3 ScoreTargetScreenPosition()
         {
+            if (StageHudUI.Instance != null)
+            {
+                return StageHudUI.Instance.ScoreLandingPosition();
+            }
             if (scoreUI == null)
             {
                 scoreUI = FindFirstObjectByType<ScoreUI>();

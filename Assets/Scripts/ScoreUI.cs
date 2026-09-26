@@ -23,6 +23,25 @@ namespace OneTapDemolition
 
         private void Start()
         {
+            // 上端の大きなスコア数字は、ゲージの「現在値/最大値」と重複するので出さない(コンポーネントは残す)
+            if (scoreText != null)
+            {
+                scoreText.enabled = false;
+            }
+            if (bestScoreText != null)
+            {
+                bestScoreText.enabled = false;
+            }
+            if (scoreText != null)
+            {
+                // スコア数字の下地(暗い枠)も一緒に隠す
+                Transform backdrop = scoreText.transform.parent != null ? scoreText.transform.parent.Find("ScoreBackdrop") : null;
+                if (backdrop != null)
+                {
+                    backdrop.gameObject.SetActive(false);
+                }
+            }
+
             if (ScoreManager.Instance == null)
             {
                 return;

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace OneTapDemolition
@@ -270,17 +270,28 @@ namespace OneTapDemolition
             Vector3 right = Vector3.Cross(Vector3.up, forward);
             position += right * w.LateralOffset;
             position.y += Mathf.Abs(Mathf.Sin(w.Phase)) * 0.015f;
+
+            // クリアのお祝い: 拍に合わせてぴょんぴょん跳ね、体をひねる
+            float party = CityCelebration.Intensity;
+            float hop = party > 0f ? CityCelebration.Hop(w.Phase) : 0f;
+            position.y += hop * 0.55f * party;
             w.Transform.position = position;
 
             if (forward.sqrMagnitude > 0.0001f)
             {
                 Quaternion want = Quaternion.LookRotation(forward, Vector3.up) * Quaternion.Euler(0f, 0f, Mathf.Sin(w.Phase) * 3f);
+                if (party > 0f)
+                {
+                    want *= Quaternion.Euler(0f, Mathf.Sin(CityCelebration.Clock * 6f + w.Phase) * 40f * party, Mathf.Sin(CityCelebration.Clock * 8f + w.Phase) * 12f * party);
+                }
                 w.Transform.rotation = Quaternion.Slerp(w.Transform.rotation, want, Mathf.Clamp01(dt * 8f));
             }
 
             float edge = Mathf.Min(w.S, w.Path.Length - w.S);
             float fade = Mathf.Clamp01(edge / EdgeFade);
-            w.Transform.localScale = new Vector3(1f, Mathf.Max(0.02f, fade), 1f) * w.BaseHeightScale;
+            // 跳ね上がるときは縦に伸び、着地でつぶれる
+            float squash = 1f + 0.18f * party * (0.5f - hop);
+            w.Transform.localScale = new Vector3(1f / squash, Mathf.Max(0.02f, fade) * squash, 1f / squash) * w.BaseHeightScale;
         }
 
         private float Range(float min, float max)
