@@ -13,6 +13,7 @@ namespace OneTapDemolition
         private float towardCamera;
         private Camera cam;
         private bool pulse;
+        private Renderer targetRenderer;
 
         public static FloorBadge Create(Transform floor, string label, Color color, float towardCameraDistance)
         {
@@ -20,6 +21,7 @@ namespace OneTapDemolition
             FloorBadge badge = root.AddComponent<FloorBadge>();
             badge.target = floor;
             badge.towardCamera = towardCameraDistance;
+            badge.targetRenderer = floor.GetComponent<Renderer>();
 
             Canvas canvas = root.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
@@ -103,11 +105,10 @@ namespace OneTapDemolition
                 }
             }
 
-            Vector3 toCam = (cam.transform.position - target.position);
-            toCam.y = 0f;
-            toCam = toCam.sqrMagnitude > 0.0001f ? toCam.normalized : Vector3.back;
-            transform.position = target.position + toCam * towardCamera;
-            transform.rotation = Quaternion.LookRotation(transform.position - cam.transform.position, Vector3.up);
+            // 階の手前(-Z)の面に貼り付ける。カメラ向きではなく面と同じ向きにして、階から浮いて見えないようにする
+            float depth = targetRenderer != null ? targetRenderer.bounds.extents.z : 1f;
+            transform.position = target.position + new Vector3(0f, 0f, -(depth + 0.06f));
+            transform.rotation = Quaternion.identity;
             if (pulse)
             {
                 float s = 0.0095f * (1f + 0.12f * Mathf.Sin(Time.time * 5f));

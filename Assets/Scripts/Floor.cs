@@ -18,6 +18,8 @@ namespace OneTapDemolition
     public class Floor : MonoBehaviour
     {
         private static readonly int ColorId = Shader.PropertyToID("_Color");
+        // 階を横に広げたので、看板が階の面にめり込まないよう十分手前に浮かせる
+        private const float MinBadgeDistance = 2.3f;
         private static readonly Color FallbackDebrisTint = new Color(0.6f, 0.57f, 0.53f, 1f);
         private static readonly Color GateX2Color = new Color(0.55f, 1f, 0.6f, 1f);
         private static readonly Color GateX3Color = new Color(1f, 0.85f, 0.25f, 1f);
@@ -148,8 +150,8 @@ namespace OneTapDemolition
             {
                 debrisTint = Color.Lerp(kindTint, FallbackDebrisTint, 0.2f);
                 badge = spec.Kind == FloorKind.Bonus
-                    ? FloorBadge.CreateStar(transform, kindTint, badgeDistance)
-                    : FloorBadge.Create(transform, label, kindTint, badgeDistance);
+                    ? FloorBadge.CreateStar(transform, kindTint, Mathf.Max(badgeDistance, MinBadgeDistance))
+                    : FloorBadge.Create(transform, label, kindTint, Mathf.Max(badgeDistance, MinBadgeDistance));
             }
 
             SetAim(AimState.None);

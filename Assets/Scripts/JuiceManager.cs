@@ -60,6 +60,9 @@ namespace OneTapDemolition
         private static Material cachedDustMaterial;
         private static Texture2D cachedDustTexture;
         private AudioSource sfxSource;
+        private readonly System.Collections.Generic.Dictionary<string, AudioClip[]> library = new System.Collections.Generic.Dictionary<string, AudioClip[]>();
+        private AudioSource[] sfxPool;
+        private int sfxPoolIndex;
         private AudioClip failClip;
         private AudioClip fanfareClip;
         private AudioClip clickClip;
@@ -91,6 +94,7 @@ namespace OneTapDemolition
 
             sfxSource = gameObject.AddComponent<AudioSource>();
             sfxSource.playOnAwake = false;
+            BuildSfxLibrary();
 
             if (impactClip == null)
             {
@@ -100,6 +104,60 @@ namespace OneTapDemolition
             {
                 destroyClip = ProceduralAudio.CreateDestroyCrunch();
             }
+        }
+
+        /// <summary>
+        /// Resources/Sfx の外部効果音(Kenney CC0)を「グループ名_番号」で読み込む。
+        /// 例: break_0, break_1 → グループbreak。無いグループは従来のプロシージャル音にフォールバックする。
+        /// </summary>
+        private void BuildSfxLibrary()
+        {
+            sfxPool = new AudioSource[6];
+            for (int i = 0; i < sfxPool.Length; i++)
+            {
+                AudioSource source = gameObject.AddComponent<AudioSource>();
+                source.playOnAwake = false;
+                sfxPool[i] = source;
+            }
+
+            System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<AudioClip>> groups =
+                new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<AudioClip>>();
+            foreach (AudioClip clip in Resources.LoadAll<AudioClip>("Sfx"))
+            {
+                clip.LoadAudioData();
+                int cut = clip.name.LastIndexOf('_');
+                string group = cut > 0 ? clip.name.Substring(0, cut) : clip.name;
+                System.Collections.Generic.List<AudioClip> list;
+                if (!groups.TryGetValue(group, out list))
+                {
+                    list = new System.Collections.Generic.List<AudioClip>();
+                    groups[group] = list;
+                }
+                list.Add(clip);
+            }
+            foreach (System.Collections.Generic.KeyValuePair<string, System.Collections.Generic.List<AudioClip>> pair in groups)
+            {
+                library[pair.Key] = pair.Value.ToArray();
+            }
+        }
+
+        /// <summary>
+        /// 外部効果音のグループからランダムに1つ選んで鳴らす。グループが無ければfalse(呼び出し側が代替音を鳴らす)。
+        /// 音源をラウンドロビンで使い、ピッチが他の音に干渉しないようにする。
+        /// </summary>
+        private bool PlayGroup(string group, float volume, float pitch)
+        {
+            AudioClip[] clips;
+            if (sfxPool == null || !library.TryGetValue(group, out clips) || clips.Length == 0)
+            {
+                return false;
+            }
+
+            AudioSource source = sfxPool[sfxPoolIndex];
+            sfxPoolIndex = (sfxPoolIndex + 1) % sfxPool.Length;
+            source.pitch = pitch;
+            source.PlayOneShot(clips[UnityEngine.Random.Range(0, clips.Length)], volume);
+            return true;
         }
 
         /// <summary>
@@ -349,7 +407,7 @@ namespace OneTapDemolition
             if (shakeRoutine != null)
             {
                 StopCoroutine(shakeRoutine);
-                cameraTransform.localPosition = cameraOriginalLocalPosition;
+                ApplyShake(Vector2.zero);
             }
 
             float magnitude = Mathf.Min(
@@ -367,12 +425,27 @@ namespace OneTapDemolition
                 elapsed += Time.unscaledDeltaTime;
                 float damper = 1f - Mathf.Clamp01(elapsed / shakeDuration);
                 Vector2 offset = UnityEngine.Random.insideUnitCircle * magnitude * damper;
-                cameraTransform.localPosition = cameraOriginalLocalPosition + new Vector3(offset.x, offset.y, 0f);
+                ApplyShake(offset);
                 yield return null;
             }
 
-            cameraTransform.localPosition = cameraOriginalLocalPosition;
+            ApplyShake(Vector2.zero);
             shakeRoutine = null;
+        }
+
+        /// <summary>
+        /// 画面揺れをカメラ枠取り(CameraFraming)に渡す。無ければ従来どおりカメラを直接動かす。
+        /// </summary>
+        private void ApplyShake(Vector2 offset)
+        {
+            if (CameraFraming.Instance != null)
+            {
+                CameraFraming.Instance.SetShake(offset);
+            }
+            else if (cameraTransform != null)
+            {
+                cameraTransform.localPosition = cameraOriginalLocalPosition + new Vector3(offset.x, offset.y, 0f);
+            }
         }
 
         private void DoHitStop(int chainCount)
@@ -400,6 +473,11 @@ namespace OneTapDemolition
 
         private void PlayImpactSound()
         {
+            if (PlayGroup("tap_hit", 0.9f, UnityEngine.Random.Range(0.95f, 1.05f)))
+            {
+                return;
+            }
+
             if (audioSource == null || impactClip == null)
             {
                 return;
@@ -411,6 +489,13 @@ namespace OneTapDemolition
 
         private void PlayDestroySound(int chainStep)
         {
+            // 連鎖が進むほど少しずつ高く鳴らして、盛り上がりを出す
+            float pitch = Mathf.Min(1.4f, 0.95f + 0.04f * Mathf.Max(0, chainStep - 1)) * UnityEngine.Random.Range(0.97f, 1.03f);
+            if (PlayGroup("break", 0.6f, pitch))
+            {
+                return;
+            }
+
             if (audioSource == null || destroyClip == null)
             {
                 return;
@@ -426,6 +511,10 @@ namespace OneTapDemolition
         public void PlayGate(float gateProduct)
         {
             int semitone = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(Mathf.Max(0.25f, gateProduct), 2f) * 5f), -6, 14);
+            if (PlayGroup("gate", 0.75f, Mathf.Pow(2f, semitone / 12f)))
+            {
+                return;
+            }
             AudioClip clip;
             if (!gateClips.TryGetValue(semitone, out clip))
             {
@@ -441,6 +530,7 @@ namespace OneTapDemolition
         public void PlayCrackEffect(Vector3 worldPosition)
         {
             SpawnDustPuff(worldPosition, 1);
+            PlayGroup("crack", 0.3f, UnityEngine.Random.Range(0.9f, 1.1f));
         }
 
         private readonly AudioClip[] tickClips = new AudioClip[8];
@@ -451,6 +541,10 @@ namespace OneTapDemolition
         public void PlayScoreTick(int step)
         {
             step = Mathf.Clamp(step, 0, tickClips.Length - 1);
+            if (PlayGroup("tick", 0.6f, Mathf.Min(1.7f, 1f + 0.08f * step)))
+            {
+                return;
+            }
             if (tickClips[step] == null)
             {
                 tickClips[step] = ProceduralAudio.CreateScoreTick(step);
@@ -460,6 +554,10 @@ namespace OneTapDemolition
 
         public void PlayFail()
         {
+            if (PlayGroup("fail", 0.8f, 1f))
+            {
+                return;
+            }
             if (failClip == null)
             {
                 failClip = ProceduralAudio.CreateFail();
@@ -470,6 +568,10 @@ namespace OneTapDemolition
         public void PlayStarNote(int index)
         {
             index = Mathf.Clamp(index, 0, starClips.Length - 1);
+            if (PlayGroup("star", 0.85f, new[] { 1f, 1.19f, 1.5f }[index]))
+            {
+                return;
+            }
             if (starClips[index] == null)
             {
                 starClips[index] = ProceduralAudio.CreateStarNote(index);
@@ -479,6 +581,10 @@ namespace OneTapDemolition
 
         public void PlayFanfare()
         {
+            if (PlayGroup("fanfare", 0.85f, 1f))
+            {
+                return;
+            }
             if (fanfareClip == null)
             {
                 fanfareClip = ProceduralAudio.CreateFanfare();
@@ -488,6 +594,10 @@ namespace OneTapDemolition
 
         public void PlayUiClick()
         {
+            if (PlayGroup("click", 0.7f, 1f))
+            {
+                return;
+            }
             if (clickClip == null)
             {
                 clickClip = ProceduralAudio.CreateUiClick();

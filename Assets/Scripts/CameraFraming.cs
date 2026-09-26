@@ -1,30 +1,38 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 namespace OneTapDemolition
 {
     /// <summary>
-    /// タワーの高さ(階数×階高)に応じてメインカメラのFOVを自動調整し、
-    /// 短いタワーが画面の中でスカスカに小さく写る/高いタワーが窮屈に写るのを防ぐ。
-    /// GameManager.SpawnNewTowerから、新しいタワーが積み上がった直後に呼ばれる。
+    /// タワーの高さに合わせてカメラの距離と向きを決め、タワーが画面の狙いの高さ(既定で約半分)に
+    /// 大きく収まるようにする。FOVを広げて引くのではなく、カメラ自体を寄せる/離すので、
+    /// 背の高いタワーでも1階が小さくなりすぎず、タッチしやすい大きさを保つ。
+    /// タワーはHUD(上)とボタン(下)の間に収まるよう、視点を少し上げて画面のやや下寄りに置く。
+    /// 画面揺れ(JuiceManager)はSetShakeで受け取り、位置に足す(基準位置を上書きしない)。
     /// シーンへの手動配置不要で、Main Cameraに自動アタッチする。
     /// </summary>
     public class CameraFraming : MonoBehaviour
     {
         public static CameraFraming Instance { get; private set; }
 
-        [SerializeField] private float baseFov = 60f;
-        [SerializeField] private float referenceTowerHeight = 9.5f;
-        [SerializeField] private float fovPerHeightUnit = 6f;
-        [SerializeField] private float minFov = 48f;
-        [SerializeField] private float maxFov = 72f;
-        [SerializeField] private float blendSpeed = 4f;
+        [SerializeField] private float fieldOfView = 50f;
+        [Tooltip("タワーの高さが画面の高さに占めてほしい割合。大きいほどタワーが大きく写る。")]
+        [SerializeField] private float towerScreenFraction = 0.6f;
+        [SerializeField] private float minDistance = 16f;
+        [SerializeField] private float maxDistance = 26f;
+        [Tooltip("カメラの仰角(度)。0で真横、大きいほど見下ろす。")]
+        [SerializeField] private float elevationDegrees = 8f;
+        [Tooltip("タワー中心を画面の中心より下へずらす量(画面高さ比)。上のHUD、下のボタンを避けるため。")]
+        [SerializeField] private float towerDownShift = 0.03f;
+        [SerializeField] private float blendSpeed = 5f;
 
         private Camera cam;
-        private float targetFov;
+        private Vector3 horizontalDirection;
+        private Vector3 basePosition;
+        private Vector3 targetPosition;
+        private Quaternion targetRotation;
+        private Vector2 shake;
+        private bool hasTarget;
 
-        /// <summary>
-        /// シーンへの手動配置不要で自動的に生き始める。他セッションによるシーン上書きの影響を受けない。
-        /// </summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Bootstrap()
         {
@@ -46,7 +54,16 @@ namespace OneTapDemolition
         {
             Instance = this;
             cam = GetComponent<Camera>();
-            targetFov = cam != null ? cam.fieldOfView : baseFov;
+
+            // シーンに置かれたカメラの水平方向(タワーから見たカメラの向き)を、そのまま使う
+            Vector3 flat = transform.position;
+            flat.y = 0f;
+            horizontalDirection = flat.sqrMagnitude > 0.01f ? flat.normalized : new Vector3(0.4f, 0f, -0.9f).normalized;
+
+            if (cam != null)
+            {
+                cam.fieldOfView = fieldOfView;
+            }
         }
 
         private void OnDestroy()
@@ -57,23 +74,58 @@ namespace OneTapDemolition
             }
         }
 
-        private void Update()
+        private void LateUpdate()
+        {
+            if (!hasTarget)
+            {
+                return;
+            }
+
+            float k = 1f - Mathf.Exp(-blendSpeed * Time.unscaledDeltaTime);
+            basePosition = Vector3.Lerp(basePosition, targetPosition, k);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, k);
+            transform.position = basePosition + transform.right * shake.x + transform.up * shake.y;
+        }
+
+        /// <summary>
+        /// 画面揺れの現在のずれ(カメラの右/上方向、ワールド単位)。基準位置に足して表示する。
+        /// </summary>
+        public void SetShake(Vector2 offset)
+        {
+            shake = offset;
+        }
+
+        /// <summary>
+        /// 新しいタワーの高さに合わせて、カメラの目標位置と向きを決める。
+        /// </summary>
+        public void FrameTower(float towerHeight)
         {
             if (cam == null)
             {
                 return;
             }
 
-            cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, Time.unscaledDeltaTime * blendSpeed);
-        }
+            float halfFov = fieldOfView * 0.5f * Mathf.Deg2Rad;
+            float visibleHeightPerDistance = 2f * Mathf.Tan(halfFov);
+            float distance = Mathf.Clamp(towerHeight / (towerScreenFraction * visibleHeightPerDistance), minDistance, maxDistance);
 
-        /// <summary>
-        /// 新しいタワーの高さに合わせて、画面いっぱいに収まるようFOVを再計算する。
-        /// </summary>
-        public void FrameTower(float towerHeight)
-        {
-            float delta = towerHeight - referenceTowerHeight;
-            targetFov = Mathf.Clamp(baseFov + delta * fovPerHeightUnit, minFov, maxFov);
+            Vector3 center = new Vector3(0f, towerHeight * 0.5f, 0f);
+            float elevation = elevationDegrees * Mathf.Deg2Rad;
+            Vector3 offset = horizontalDirection * (distance * Mathf.Cos(elevation)) + Vector3.up * (distance * Mathf.Sin(elevation));
+            targetPosition = center + offset;
+
+            // 視点を少し上へ向けると、タワーが画面の下寄りに写る
+            float visibleHeight = distance * visibleHeightPerDistance;
+            Vector3 lookAt = center + Vector3.up * (visibleHeight * towerDownShift);
+            targetRotation = Quaternion.LookRotation(lookAt - targetPosition, Vector3.up);
+
+            if (!hasTarget)
+            {
+                basePosition = targetPosition;
+                transform.position = targetPosition;
+                transform.rotation = targetRotation;
+            }
+            hasTarget = true;
         }
     }
 }

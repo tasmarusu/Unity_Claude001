@@ -13,6 +13,8 @@ namespace OneTapDemolition
         [Header("Build Settings")]
         [SerializeField] private Floor floorPrefab;
         [SerializeField] private float floorHeight = 1f;
+        // 階を横(左右・奥行き)に広げる倍率。広いほどタッチしやすく、ビルが堂々と見える
+        private const float WidthScale = 1.25f;
 
         [Header("Chain Settings")]
         [Tooltip("階が揺れてヒビが入ってから崩れるまでの時間(秒)。何が壊れるかを目で追えるようにする。")]
@@ -44,6 +46,8 @@ namespace OneTapDemolition
             {
                 Floor floor = Instantiate(floorPrefab, transform);
                 floor.transform.localPosition = new Vector3(0f, i * floorHeight, 0f);
+                Vector3 scale = floor.transform.localScale;
+                floor.transform.localScale = new Vector3(scale.x * WidthScale, scale.y, scale.z * WidthScale);
                 floor.Setup(i, this, spec.Floors[i]);
                 floors.Add(floor);
             }
