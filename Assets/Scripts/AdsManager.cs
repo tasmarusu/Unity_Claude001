@@ -35,7 +35,12 @@ namespace OneTapDemolition
         private RewardedAd rewardedAd;
         private int towerClearCount;
 
+#if UNITY_EDITOR
+        // エディタでは広告SDKが動かないので、リワードの流れ(ヒント/+1ショット)を確認できるよう常に準備完了扱いにする
+        public bool IsRewardedReady => true;
+#else
         public bool IsRewardedReady => rewardedAd != null && rewardedAd.CanShowAd();
+#endif
 
         private void Awake()
         {
@@ -177,12 +182,17 @@ namespace OneTapDemolition
         /// </summary>
         public void ShowRewarded(Action onRewarded)
         {
+#if UNITY_EDITOR
+            onRewarded?.Invoke();
+            return;
+#else
             if (rewardedAd == null || !rewardedAd.CanShowAd())
             {
                 return;
             }
 
             rewardedAd.Show(_ => onRewarded?.Invoke());
+#endif
         }
     }
 }

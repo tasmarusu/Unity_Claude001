@@ -54,6 +54,13 @@ namespace OneTapDemolition
         private RectTransform guideCapLeft;
         private RectTransform guideCapRight;
         private Button finishButton;
+        private Button hintButton;
+        private RectTransform hintLine;
+        private RectTransform hintCapLeft;
+        private RectTransform hintCapRight;
+        private Text hintText;
+        private int hintIndex = -1;
+        private int hintStage;
         private int pulseSlotCount;
 
         public static StageHudUI Instance { get; private set; }
@@ -195,6 +202,135 @@ namespace OneTapDemolition
             finishButton = UiKit.MakeButton(safeRoot, "FinishButton", "FINISH", new Color(0.25f, 0.55f, 0.95f, 1f), new Vector2(360f, 110f), OnFinishClicked);
             UiKit.SetAnchored(finishButton.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(360f, 110f));
             finishButton.gameObject.SetActive(false);
+
+            // リワード広告を見ると、最大得点を出すための一手を教えてくれる
+            hintButton = UiKit.MakeButton(safeRoot, "HintButton", "▶ ヒント", new Color(0.55f, 0.35f, 0.9f, 1f), new Vector2(300f, 100f), OnHintClicked);
+            UiKit.SetAnchored(hintButton.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f, 24f), new Vector2(300f, 100f));
+            hintButton.gameObject.SetActive(false);
+
+            Color hintColor = new Color(0.55f, 1f, 0.6f, 0.95f);
+            Image hl = UiKit.Panel(canvasRect, "HintLine", hintColor, false);
+            hintLine = hl.rectTransform;
+            hintLine.sizeDelta = new Vector2(100f, 10f);
+            Image hcl = UiKit.Panel(canvasRect, "HintCapL", hintColor, false);
+            hcl.sprite = UiSprites.Circle;
+            hintCapLeft = hcl.rectTransform;
+            hintCapLeft.sizeDelta = new Vector2(34f, 34f);
+            Image hcr = UiKit.Panel(canvasRect, "HintCapR", hintColor, false);
+            hcr.sprite = UiSprites.Circle;
+            hintCapRight = hcr.rectTransform;
+            hintCapRight.sizeDelta = new Vector2(34f, 34f);
+            hintText = UiKit.Label(canvasRect, "HintText", "", 44, new Color(0.7f, 1f, 0.7f, 1f), TextAnchor.MiddleLeft);
+            hintText.rectTransform.sizeDelta = new Vector2(360f, 130f);
+            SetHintVisible(false);
+        }
+
+        private void SetHintVisible(bool visible)
+        {
+            hintLine.gameObject.SetActive(visible);
+            hintCapLeft.gameObject.SetActive(visible);
+            hintCapRight.gameObject.SetActive(visible);
+            hintText.gameObject.SetActive(visible);
+        }
+
+        private void ClearHint()
+        {
+            hintIndex = -1;
+            SetHintVisible(false);
+        }
+
+        private void RefreshHintButton()
+        {
+            GameManager gm = GameManager.Instance;
+            bool can = gm != null && gm.State == GameState.Playing && gm.ShotsLeft > 0 && gm.CurrentTower != null
+                && gm.CurrentTower.AliveCount > 0 && hintIndex < 0 && AdsManager.Instance != null && AdsManager.Instance.IsRewardedReady;
+            hintButton.gameObject.SetActive(can);
+        }
+
+        private void OnHintClicked()
+        {
+            JuiceManager.Instance?.PlayUiClick();
+            AdsManager.Instance?.ShowRewarded(GrantHint);
+        }
+
+        /// <summary>
+        /// 今の状態から最大得点になる一手目(今の残りショット・残りの階で総当たり)を印で示す。次のショットを撃つまで出ている。
+        /// </summary>
+        private void GrantHint()
+        {
+            GameManager gm = GameManager.Instance;
+            if (gm == null || gm.State != GameState.Playing || gm.CurrentTower == null || spec == null || gm.ShotsLeft <= 0)
+            {
+                return;
+            }
+
+            float historyBonus = ScoreManager.Instance != null ? ScoreManager.Instance.HistoryBonus : 0f;
+            int first;
+            int bestFromHere = ScoreRules.BestScore(spec.Floors, gm.CurrentTower.AliveCount, gm.ShotsLeft, historyBonus, out first);
+            if (first < 0)
+            {
+                return;
+            }
+
+            hintIndex = first;
+            hintStage = stageToken;
+            int current = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
+            int reachable = current + bestFromHere;
+            hintText.text = reachable >= spec.OptimalScore ? "ここ!\n満点コース" : "ここ!\n最大 " + reachable;
+            hintButton.gameObject.SetActive(false);
+            JuiceManager.Instance?.PlayStarNote(1);
+        }
+
+        private void UpdateHint()
+        {
+            GameManager gm = GameManager.Instance;
+            Camera cam = Camera.main;
+            if (hintIndex < 0 || gm == null || gm.CurrentTower == null || cam == null || hintStage != stageToken || hintIndex >= gm.CurrentTower.Floors.Count)
+            {
+                if (hintIndex >= 0)
+                {
+                    ClearHint();
+                }
+                return;
+            }
+
+            Floor floor = gm.CurrentTower.Floors[hintIndex];
+            if (floor == null)
+            {
+                ClearHint();
+                return;
+            }
+
+            // 狙うときの切断ラインと同じく、階の下端に線を引く(ここから上が崩れる)
+            Bounds b = floor.GetComponent<Renderer>().bounds;
+            Vector3 mid = new Vector3(b.center.x, b.min.y, b.center.z);
+            Vector3 right = cam.transform.right;
+            Vector3 a = cam.WorldToScreenPoint(mid - right * (b.extents.x + 1.4f));
+            Vector3 c = cam.WorldToScreenPoint(mid + right * (b.extents.x + 1.4f));
+            if (a.z <= 0f || c.z <= 0f)
+            {
+                SetHintVisible(false);
+                return;
+            }
+
+            SetHintVisible(true);
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 8f);
+            Vector2 delta = c - a;
+            hintLine.position = (a + c) * 0.5f;
+            hintLine.sizeDelta = new Vector2(delta.magnitude, 8f + 6f * pulse);
+            hintLine.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+            hintCapLeft.position = a;
+            hintCapRight.position = c;
+            hintCapLeft.localScale = Vector3.one * (1f + 0.35f * pulse);
+            hintCapRight.localScale = Vector3.one * (1f + 0.35f * pulse);
+
+            // ラベルは線の右端の外側(建物に重ならない)。画面からはみ出さないよう収める
+            float scale = canvasRect.lossyScale.x;
+            float width = hintText.rectTransform.sizeDelta.x * scale;
+            float left = Mathf.Min(c.x + 30f * scale, Screen.width - width);
+            hintText.rectTransform.pivot = new Vector2(0f, 0.5f);
+            hintText.rectTransform.position = new Vector3(left, c.y + 60f * scale, 0f);
+            hintText.color = Color.Lerp(new Color(0.7f, 1f, 0.7f, 1f), Color.white, pulse);
         }
 
         private void OnFinishClicked()
@@ -342,6 +478,7 @@ namespace OneTapDemolition
         {
             hudPanel.gameObject.SetActive(true);
             stageToken++;
+            ClearHint();
             spec = newSpec;
             displayedScore = 0;
             shownScore = 0f;
@@ -386,12 +523,15 @@ namespace OneTapDemolition
             hudPanel.gameObject.SetActive(false);
             aimText.gameObject.SetActive(false);
             finishButton.gameObject.SetActive(false);
+            hintButton.gameObject.SetActive(false);
+            ClearHint();
             SetGuideVisible(false);
             pulseSlotCount = 0;
         }
 
         private void OnStateChanged(GameState state)
         {
+            RefreshHintButton();
             // MAXに届いたあと、次のショットを待っている間だけFINISHを出す
             finishButton.gameObject.SetActive(gaugeMaxed && state == GameState.Playing);
         }
@@ -442,6 +582,8 @@ namespace OneTapDemolition
 
         private void OnShotsChanged(int left, int total)
         {
+            // ショットを撃ったら、その一手のヒントは終わり(次の一手はまたヒントを見られる)
+            ClearHint();
             if (pips.Length != total)
             {
                 RebuildPips(total);
@@ -475,6 +617,9 @@ namespace OneTapDemolition
             {
                 return;
             }
+
+            RefreshHintButton();
+            UpdateHint();
 
             float k = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
             shownScore = Mathf.Lerp(shownScore, displayedScore, k);
