@@ -25,7 +25,7 @@ namespace OneTapDemolition
             canvas.renderMode = RenderMode.WorldSpace;
             canvas.worldCamera = Camera.main;
             RectTransform rect = root.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(260f, 120f);
+            rect.sizeDelta = new Vector2(260f, 82f);
             root.transform.localScale = Vector3.one * 0.0095f;
 
             GameObject bg = new GameObject("Bg", typeof(RectTransform), typeof(Image));
@@ -51,12 +51,12 @@ namespace OneTapDemolition
             text.text = label;
             text.alignment = TextAnchor.MiddleCenter;
             text.fontStyle = FontStyle.Bold;
-            text.fontSize = label.Length > 3 ? 64 : 92;
+            text.fontSize = label.Length > 3 ? 48 : 68;
             text.color = Color.Lerp(color, Color.white, 0.55f);
             text.raycastTarget = false;
             Outline outline = textGO.GetComponent<Outline>();
             outline.effectColor = new Color(0f, 0f, 0f, 0.9f);
-            outline.effectDistance = new Vector2(3f, -3f);
+            outline.effectDistance = new Vector2(2f, -2f);
 
             return badge;
         }
@@ -74,7 +74,7 @@ namespace OneTapDemolition
             RectTransform rect = iconGO.GetComponent<RectTransform>();
             rect.anchorMin = new Vector2(0.5f, 0.5f);
             rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(110f, 110f);
+            rect.sizeDelta = new Vector2(74f, 74f);
             Image icon = iconGO.GetComponent<Image>();
             icon.sprite = UiSprites.Star;
             icon.color = Color.Lerp(color, Color.white, 0.25f);

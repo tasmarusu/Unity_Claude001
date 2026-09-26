@@ -10,28 +10,43 @@ namespace OneTapDemolition
     public static class StageGenerator
     {
         private const int MinFloors = 6;
-        private const int MaxFloors = 12;
-        private const int MaxRerolls = 30;
+        private const int MaxFloors = 10;
+        private const int MaxRerolls = 80;
         private static readonly float[] GoodGateValues = { 2f, 3f };
         private const float BadGateValue = 0.5f;
         private const float TargetRatio = 0.6f;
         private const float StarRatio = 0.75f;
         private const int ScoreRounding = 50;
 
+        /// <summary>
+        /// 条件を満たす構成を探して返す。優先順: (1)☆3が取れる かつ 単調でない (2)☆3が取れる (3)最後の候補。
+        /// 「☆3が取れないステージ」を作らないため、生成のたびに総当たりで確認する。
+        /// </summary>
         public static StageSpec Generate(int stageIndex, float historyBonus)
         {
-            StageSpec best = null;
+            StageSpec feasibleFallback = null;
+            StageSpec last = null;
             for (int attempt = 0; attempt < MaxRerolls; attempt++)
             {
                 StageSpec spec = Build(stageIndex, attempt, historyBonus);
-                best = spec;
-                bool needsNonTrivial = stageIndex >= 2;
-                if (!needsNonTrivial || spec.FirstOptimalTap > 0)
+                last = spec;
+
+                if (!ScoreRules.AllStarsFeasible(spec, historyBonus))
                 {
-                    break;
+                    continue;
+                }
+
+                bool nonTrivial = stageIndex < 2 || spec.FirstOptimalTap > 0;
+                if (nonTrivial)
+                {
+                    return spec;
+                }
+                if (feasibleFallback == null)
+                {
+                    feasibleFallback = spec;
                 }
             }
-            return best;
+            return feasibleFallback ?? last;
         }
 
         private static StageSpec Build(int stageIndex, int attempt, float historyBonus)

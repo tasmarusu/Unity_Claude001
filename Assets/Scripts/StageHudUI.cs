@@ -49,6 +49,9 @@ namespace OneTapDemolition
         private Text aimText;
         private RectTransform aimRect;
         private readonly Image[] aimStars = new Image[3];
+        private RectTransform guideLine;
+        private RectTransform guideCapLeft;
+        private RectTransform guideCapRight;
         private int pulseSlotCount;
 
         private StageSpec spec;
@@ -152,6 +155,8 @@ namespace OneTapDemolition
             aimRect.sizeDelta = new Vector2(620f, 120f);
             aimText.gameObject.SetActive(false);
 
+            BuildAimGuide();
+
             // 狙っている階で取れる☆を、指の上のラベルの下に☆アイコンで予告する
             for (int i = 0; i < aimStars.Length; i++)
             {
@@ -161,6 +166,67 @@ namespace OneTapDemolition
                 star.gameObject.SetActive(false);
                 aimStars[i] = star;
             }
+        }
+
+        /// <summary>
+        /// 狙っている階の下端に引く「切断ライン」。ビルより左右にはみ出して描くので、指で隠れても
+        /// どの階を狙っているかが分かる。
+        /// </summary>
+        private void BuildAimGuide()
+        {
+            Color guideColor = new Color(1f, 0.95f, 0.45f, 0.95f);
+
+            Image line = UiKit.Panel(canvasRect, "AimGuideLine", guideColor, false);
+            guideLine = line.rectTransform;
+            guideLine.sizeDelta = new Vector2(100f, 8f);
+
+            Image left = UiKit.Panel(canvasRect, "AimGuideCapL", guideColor, false);
+            left.sprite = UiSprites.Circle;
+            guideCapLeft = left.rectTransform;
+            guideCapLeft.sizeDelta = new Vector2(30f, 30f);
+
+            Image right = UiKit.Panel(canvasRect, "AimGuideCapR", guideColor, false);
+            right.sprite = UiSprites.Circle;
+            guideCapRight = right.rectTransform;
+            guideCapRight.sizeDelta = new Vector2(30f, 30f);
+
+            SetGuideVisible(false);
+        }
+
+        private void SetGuideVisible(bool visible)
+        {
+            guideLine.gameObject.SetActive(visible);
+            guideCapLeft.gameObject.SetActive(visible);
+            guideCapRight.gameObject.SetActive(visible);
+        }
+
+        private void UpdateAimGuide(Floor floor)
+        {
+            Camera cam = Camera.main;
+            if (floor == null || cam == null)
+            {
+                SetGuideVisible(false);
+                return;
+            }
+
+            Bounds b = floor.GetComponent<Renderer>().bounds;
+            Vector3 bottomCenter = new Vector3(b.center.x, b.min.y, b.center.z);
+            Vector3 right = cam.transform.right;
+            Vector3 a = cam.WorldToScreenPoint(bottomCenter - right * (b.extents.x + 1.2f));
+            Vector3 c = cam.WorldToScreenPoint(bottomCenter + right * (b.extents.x + 1.2f));
+            if (a.z <= 0f || c.z <= 0f)
+            {
+                SetGuideVisible(false);
+                return;
+            }
+
+            SetGuideVisible(true);
+            Vector2 delta = c - a;
+            guideLine.position = (a + c) * 0.5f;
+            guideLine.sizeDelta = new Vector2(delta.magnitude, 8f);
+            guideLine.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+            guideCapLeft.position = a;
+            guideCapRight.position = c;
         }
 
         private void BuildGauge(RectTransform panel)
@@ -249,6 +315,7 @@ namespace OneTapDemolition
             // リザルトが前面に出るので、ゲージ/コンボ等のHUDは畳んで重なりを避ける
             hudPanel.gameObject.SetActive(false);
             aimText.gameObject.SetActive(false);
+            SetGuideVisible(false);
             pulseSlotCount = 0;
         }
 
@@ -540,6 +607,7 @@ namespace OneTapDemolition
             GameManager gm = GameManager.Instance;
             if (!aiming || tapIndex < 0 || spec == null || gm == null || gm.CurrentTower == null)
             {
+                SetGuideVisible(false);
                 aimText.gameObject.SetActive(false);
                 ghostNormalized = 0f;
                 pulseSlotCount = 0;
@@ -548,6 +616,7 @@ namespace OneTapDemolition
 
             bool reachesMax = displayedScore + predicted >= spec.TargetScore;
             int alive = gm.CurrentTower.AliveCount;
+            UpdateAimGuide(gm.CurrentTower.Floors[tapIndex]);
 
             // この一撃で取れる☆(まだ取っていない条件だけ)
             bool bonus = !gm.HasStar(StarReason.BonusFloor) && ScoreRules.ChainIncludesBonus(spec.Floors, tapIndex, alive);
@@ -562,6 +631,8 @@ namespace OneTapDemolition
             for (int i = 0; i < aimStars.Length; i++)
             {
                 aimStars[i].gameObject.SetActive(i < starCount);
+                // 表示する☆をラベルの真下で左右対称に並べる
+                aimStars[i].rectTransform.anchoredPosition = new Vector2((i - (starCount - 1) * 0.5f) * 84f, -4f);
             }
             ghostNormalized = Mathf.Clamp01((displayedScore + predicted) / (float)spec.StarScore);
 

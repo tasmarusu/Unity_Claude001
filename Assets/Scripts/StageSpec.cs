@@ -115,6 +115,42 @@ namespace OneTapDemolition
         }
 
         /// <summary>
+        /// このステージで☆3つ(ボーナス階・1発で連鎖5・☆マークまで)を全部取れる撃ち方が存在するか。
+        /// 実際のルールどおり、MAXに達した一撃でステージが終わる(その後は撃てない)ことを前提に、
+        /// タップ位置が単調に下がる全ての撃ち方を総当たりで調べる。ステージ生成で「☆3が取れないステージ」を作らないために使う。
+        /// </summary>
+        public static bool AllStarsFeasible(StageSpec spec, float historyBonus)
+        {
+            return AllStarsSearch(spec, spec.Floors.Length, spec.Shots, 0, false, false, historyBonus);
+        }
+
+        private static bool AllStarsSearch(StageSpec spec, int limit, int shotsLeft, int score, bool bonus, bool combo, float historyBonus)
+        {
+            for (int j = 0; j < limit; j++)
+            {
+                int total = score + SimulateTap(spec.Floors, j, limit, historyBonus);
+                bool gotBonus = bonus || ChainIncludesBonus(spec.Floors, j, limit);
+                bool gotCombo = combo || limit - j >= ComboStarStep;
+
+                if (total >= spec.TargetScore)
+                {
+                    // MAXに達した一撃でステージ終了。このときに3条件が揃っていれば☆3
+                    if (gotBonus && gotCombo && total >= spec.StarScore)
+                    {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if (shotsLeft > 1 && j > 0 && AllStarsSearch(spec, j, shotsLeft - 1, total, gotBonus, gotCombo, historyBonus))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
         /// tapIndexをタップして巻き込まれる階(tapIndex以上limit未満)にボーナス階が含まれるか。
         /// </summary>
         public static bool ChainIncludesBonus(FloorSpec[] floors, int tapIndex, int limit)
