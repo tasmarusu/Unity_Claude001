@@ -65,6 +65,7 @@ namespace OneTapDemolition
         private int sfxPoolIndex;
         private AudioClip failClip;
         private AudioClip fanfareClip;
+        private AudioSource fanfareSource;
         private AudioClip clickClip;
         private readonly System.Collections.Generic.Dictionary<int, AudioClip> gateClips = new System.Collections.Generic.Dictionary<int, AudioClip>();
         private readonly AudioClip[] starClips = new AudioClip[3];
@@ -158,6 +159,27 @@ namespace OneTapDemolition
             source.pitch = pitch;
             source.PlayOneShot(clips[UnityEngine.Random.Range(0, clips.Length)], volume);
             return true;
+        }
+
+        private void Start()
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.StageStarted += OnStageStarted;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.StageStarted -= OnStageStarted;
+            }
+        }
+
+        private void OnStageStarted(StageSpec spec, int shots)
+        {
+            StopFanfare();
         }
 
         /// <summary>
@@ -579,17 +601,69 @@ namespace OneTapDemolition
             sfxSource.PlayOneShot(starClips[index], 0.9f);
         }
 
-        public void PlayFanfare()
+        /// <summary>
+        /// ステージクリアのファンファーレ。通常クリアは短い勝利ジングル、☆3つ(PERFECT)はオーケストラ風の長いファンファーレ。
+        /// 専用の音源で鳴らし、次のステージが始まったらStopFanfareで素早く消す(プレイ中に鳴り続けないように)。
+        /// 外部素材(clear/perfect)が無ければ、従来の合成ファンファーレにフォールバックする。
+        /// </summary>
+        public void PlayFanfare(bool perfect)
         {
-            if (PlayGroup("fanfare", 0.85f, 1f))
+            AudioClip[] clips;
+            if (library.TryGetValue(perfect ? "perfect" : "clear", out clips) && clips.Length > 0)
             {
+                EnsureFanfareSource();
+                fanfareSource.Stop();
+                fanfareSource.volume = 1f;
+                fanfareSource.clip = clips[UnityEngine.Random.Range(0, clips.Length)];
+                fanfareSource.Play();
                 return;
             }
+
             if (fanfareClip == null)
             {
                 fanfareClip = ProceduralAudio.CreateFanfare();
             }
             sfxSource.PlayOneShot(fanfareClip, 0.9f);
+        }
+
+        private void EnsureFanfareSource()
+        {
+            if (fanfareSource == null)
+            {
+                fanfareSource = gameObject.AddComponent<AudioSource>();
+                fanfareSource.playOnAwake = false;
+                fanfareSource.loop = false;
+            }
+        }
+
+        /// <summary>
+        /// 鳴っているファンファーレを短くフェードアウトして止める。
+        /// </summary>
+        public void StopFanfare()
+        {
+            if (fanfareSource != null && fanfareSource.isPlaying)
+            {
+                StartCoroutine(FadeOutFanfare());
+            }
+        }
+
+        private IEnumerator FadeOutFanfare()
+        {
+            AudioSource source = fanfareSource;
+            float start = source.volume;
+            float elapsed = 0f;
+            const float duration = 0.25f;
+            while (elapsed < duration && source != null && source.isPlaying)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                source.volume = Mathf.Lerp(start, 0f, elapsed / duration);
+                yield return null;
+            }
+            if (source != null)
+            {
+                source.Stop();
+                source.volume = 1f;
+            }
         }
 
         public void PlayUiClick()

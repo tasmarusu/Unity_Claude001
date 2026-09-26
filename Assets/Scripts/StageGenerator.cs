@@ -19,11 +19,13 @@ namespace OneTapDemolition
         private const int ScoreRounding = 50;
 
         /// <summary>
-        /// 条件を満たす構成を探して返す。優先順: (1)☆3が取れる かつ 単調でない (2)☆3が取れる (3)最後の候補。
-        /// 「☆3が取れないステージ」を作らないため、生成のたびに総当たりで確認する。
+        /// 条件を満たす構成を探して返す。優先順:
+        /// (1)☆3が取れる・素直な1発で☆3に届く・単調でない (2)☆3が取れる・素直な1発で☆3に届く (3)☆3が取れる (4)最後の候補。
+        /// 「☆3が取れないステージ」「高得点を狙って撃ったのに☆が足りないステージ」を作らないため、生成のたびに総当たりで確認する。
         /// </summary>
         public static StageSpec Generate(int stageIndex, float historyBonus)
         {
+            StageSpec fairFallback = null;
             StageSpec feasibleFallback = null;
             StageSpec last = null;
             for (int attempt = 0; attempt < MaxRerolls; attempt++)
@@ -36,17 +38,22 @@ namespace OneTapDemolition
                     continue;
                 }
 
+                bool fair = ScoreRules.OneTapCanEarnAllStars(spec, historyBonus);
                 bool nonTrivial = stageIndex < 2 || spec.FirstOptimalTap > 0;
-                if (nonTrivial)
+                if (fair && nonTrivial)
                 {
                     return spec;
+                }
+                if (fair && fairFallback == null)
+                {
+                    fairFallback = spec;
                 }
                 if (feasibleFallback == null)
                 {
                     feasibleFallback = spec;
                 }
             }
-            return feasibleFallback ?? last;
+            return fairFallback ?? feasibleFallback ?? last;
         }
 
         private static StageSpec Build(int stageIndex, int attempt, float historyBonus)

@@ -1,0 +1,9 @@
+Fanfare sound effects (Assets/Resources/Sfx)
+
+perfect_0.wav  - "Victory Fanfare Short" by cynicmusic (trimmed/converted to mono 44.1kHz WAV)
+                 https://opengameart.org/content/victory-fanfare-short
+                 License: CC0 1.0 (Public Domain)
+
+clear_0.wav    - "Win sound effect" by Listener (trimmed/converted to mono 44.1kHz WAV)
+                 https://opengameart.org/content/win-sound-effect
+                 License: CC0 1.0 (Public Domain)

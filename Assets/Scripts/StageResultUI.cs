@@ -195,6 +195,11 @@ namespace OneTapDemolition
         private IEnumerator ShowResultRoutine(StageResult r)
         {
             resultPanel.SetActive(true);
+            if (!r.Failed)
+            {
+                // クリアの瞬間にファンファーレを鳴らす(☆が点く音はその上に重ねる)
+                JuiceManager.Instance?.PlayFanfare(r.Stars >= 3);
+            }
             resultTitle.text = r.Failed ? "FAILED" : (r.Stars >= 3 ? "PERFECT!" : "CLEAR!");
             resultTitle.color = r.Failed ? new Color(1f, 0.45f, 0.45f, 1f) : Color.white;
             scoreText.color = Color.white;
@@ -254,11 +259,6 @@ namespace OneTapDemolition
                 stars[i].color = StarOn;
                 JuiceManager.Instance?.PlayStarNote(i);
                 StartCoroutine(Pop(stars[i].rectTransform, 1.5f));
-            }
-            if (r.Stars >= 3)
-            {
-                yield return new WaitForSecondsRealtime(0.15f);
-                JuiceManager.Instance?.PlayFanfare();
             }
 
             yield return new WaitForSecondsRealtime(0.2f);

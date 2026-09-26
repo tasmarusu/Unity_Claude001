@@ -117,6 +117,55 @@ namespace OneTapDemolition
         }
 
         /// <summary>
+        /// 1発だけ撃つ場合の最高スコア。bonusOnly=trueなら「ボーナス階を巻き込む撃ち方」に限る。
+        /// includesBonusは、その最高スコアの撃ち方がボーナス階を巻き込むか。
+        /// </summary>
+        public static int BestSingleTap(FloorSpec[] floors, float historyBonus, bool bonusOnly, out bool includesBonus)
+        {
+            int limit = floors.Length;
+            int best = 0;
+            includesBonus = false;
+            for (int j = 0; j < limit; j++)
+            {
+                bool hasBonus = ChainIncludesBonus(floors, j, limit);
+                if (bonusOnly && !hasBonus)
+                {
+                    continue;
+                }
+
+                int score = SimulateTap(floors, j, limit, historyBonus);
+                if (score > best)
+                {
+                    best = score;
+                    includesBonus = hasBonus;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// 「素直に高得点を狙った1発」で☆3つに届くか。ボーナス階を巻き込む1発の最高スコアが☆マーク以上であること。
+        /// (1ショットのステージでは、それより高得点になる「ボーナス階を外す1発」があってもいけない。
+        /// 外すと4000点超えでも☆2つ、という不公平が起きるため。)
+        /// </summary>
+        public static bool OneTapCanEarnAllStars(StageSpec spec, float historyBonus)
+        {
+            bool ignored;
+            int withBonus = BestSingleTap(spec.Floors, historyBonus, true, out ignored);
+            if (withBonus < spec.StarScore)
+            {
+                return false;
+            }
+            if (spec.Shots <= 1)
+            {
+                bool bestIncludes;
+                BestSingleTap(spec.Floors, historyBonus, false, out bestIncludes);
+                return bestIncludes;
+            }
+            return true;
+        }
+
+        /// <summary>
         /// このステージで☆3つ(ボーナス階を壊す・MAXに届く・ゲージ右端の☆まで届く)を全部取れる撃ち方が存在するか。
         /// MAXに届いてもショットと階が残っていれば続けられる実際のルールどおり、
         /// タップ位置が単調に下がる全ての撃ち方を総当たりで調べる。

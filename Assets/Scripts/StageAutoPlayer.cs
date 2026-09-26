@@ -1,4 +1,4 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+﻿#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -11,6 +11,7 @@ namespace OneTapDemolition
     /// その手順を実際のゲーム(GameManager/BuildingTower/スコア飛翔/☆判定)でそのまま実行して、
     /// 本当に☆3つになるかを確かめる。ソルバーの理屈だけでなく、実エンジンの挙動(タイミング・表示スコア・ステージ終了条件)まで含めた検証。
     /// 使い方: Play中に StageAutoPlayer.Begin(1, 30) → 終わったら StageAutoPlayer.Report を読む。
+    /// oneTap=true なら「ボーナス階を巻き込む1発の最高スコア」を1回だけ撃つ(素直に高得点を狙った撃ち方)で☆3つになるかを確かめる。
     /// 進行度(PlayerPrefs)は実行後に元へ戻す。
     /// </summary>
     public class StageAutoPlayer : MonoBehaviour
@@ -23,9 +24,10 @@ namespace OneTapDemolition
         public static bool Running { get; private set; }
 
         private float speed = 4f;
+        private bool oneTap;
         private StageResult lastResult;
 
-        public static void Begin(int fromStage, int toStage, float timeScale = 4f)
+        public static void Begin(int fromStage, int toStage, float timeScale = 4f, bool oneTap = false)
         {
             if (Running)
             {
@@ -35,6 +37,7 @@ namespace OneTapDemolition
             GameObject go = new GameObject("StageAutoPlayer");
             StageAutoPlayer player = go.AddComponent<StageAutoPlayer>();
             player.speed = timeScale;
+            player.oneTap = oneTap;
             player.StartCoroutine(player.Run(fromStage, toStage));
         }
 
@@ -85,7 +88,26 @@ namespace OneTapDemolition
                 StageSpec spec = gm.CurrentSpec;
                 float historyBonus = ScoreManager.Instance != null ? ScoreManager.Instance.HistoryBonus : 0f;
                 List<int> plan = new List<int>();
-                if (!ScoreRules.FindThreeStarPlan(spec, historyBonus, plan))
+                if (oneTap)
+                {
+                    int bestTap = -1;
+                    int bestScore = -1;
+                    for (int j = 0; j < spec.Floors.Length; j++)
+                    {
+                        if (!ScoreRules.ChainIncludesBonus(spec.Floors, j, spec.Floors.Length))
+                        {
+                            continue;
+                        }
+                        int sc = ScoreRules.SimulateTap(spec.Floors, j, spec.Floors.Length, historyBonus);
+                        if (sc > bestScore)
+                        {
+                            bestScore = sc;
+                            bestTap = j;
+                        }
+                    }
+                    plan.Add(bestTap);
+                }
+                else if (!ScoreRules.FindThreeStarPlan(spec, historyBonus, plan))
                 {
                     noPlan++;
                     lines.AppendLine("stage " + stage + ": NO PLAN (solver says 3 stars impossible)");
