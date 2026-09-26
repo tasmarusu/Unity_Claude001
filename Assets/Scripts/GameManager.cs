@@ -251,10 +251,10 @@ namespace OneTapDemolition
 
             int score = ScoreManager.Instance != null ? ScoreManager.Instance.CurrentScore : 0;
             bool towerDone = currentTower == null || currentTower.AliveCount <= 0;
-            bool everythingEarned = starFlags[(int)StarReason.BonusFloor] && score >= CurrentSpec.StarScore;
 
-            // MAXに届いても、ショットと階が残っていて☆が残っているなら続けられる。撃ち切る/壊し切る/☆を全部取ると終わる。
-            if (towerDone || ShotsLeft <= 0 || everythingEarned)
+            // ゲージの右端は「そのステージの最大得点」。☆を3つ取り切っても、ショットと階が残る限り続けられる
+            // (満点を狙える)。撃ち切る/壊し切る/FINISHを押すと終わる。
+            if (towerDone || ShotsLeft <= 0)
             {
                 EndStage(score < CurrentSpec.TargetScore);
             }
